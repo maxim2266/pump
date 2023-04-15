@@ -18,7 +18,7 @@ func New[T any](fn func(func(T) error) error) *Pump[T] {
 
 func (p *Pump[T]) Run(fn func(T) error) error {
 	if !p.done.CompareAndSwap(false, true) {
-		return errors.New("attempt to reuse a pump")
+		return errors.New("pump: attempt to reuse a pump")
 	}
 
 	return p.pump(fn)
