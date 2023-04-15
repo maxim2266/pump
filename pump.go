@@ -42,6 +42,8 @@ func (p *Pump[T]) WithPipe() *Pump[T] {
 		errch := make(chan error, 1)
 		ctx, cancel := context.WithCancel(context.Background())
 
+		defer cancel()
+
 		go func() {
 			defer func() {
 				close(queue)
@@ -79,7 +81,7 @@ func Batch[T any](src *Pump[T], size int) *Pump[[]T] {
 		panic("pump: invalid batch size: " + strconv.Itoa(size))
 	}
 
-	return New[[]T](func(fn func([]T) error) error {
+	return New(func(fn func([]T) error) error {
 		batch := make([]T, 0, size)
 
 		err := src.Run(func(item T) (err error) {
@@ -103,7 +105,7 @@ func Batch[T any](src *Pump[T], size int) *Pump[[]T] {
 }
 
 func Map[T, U any](src *Pump[T], conv func(T) U) *Pump[U] {
-	return New[U](func(fn func(U) error) error {
+	return New(func(fn func(U) error) error {
 		return src.Run(func(item T) error {
 			return fn(conv(item))
 		})
@@ -111,7 +113,7 @@ func Map[T, U any](src *Pump[T], conv func(T) U) *Pump[U] {
 }
 
 func MapE[T, U any](src *Pump[T], conv func(T) (U, error)) *Pump[U] {
-	return New[U](func(fn func(U) error) error {
+	return New(func(fn func(U) error) error {
 		return src.Run(func(item T) (err error) {
 			var v U
 
@@ -132,7 +134,7 @@ func All[T any](args ...*Pump[T]) *Pump[T] {
 		return args[0]
 	}
 
-	return New[T](func(fn func(T) error) error {
+	return New(func(fn func(T) error) error {
 		for _, p := range args {
 			if err := p.Run(fn); err != nil {
 				return err

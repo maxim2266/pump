@@ -3,22 +3,14 @@ package pump
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"testing"
 )
 
 func TestPipelinedPump(t *testing.T) {
 	const N = 1_000_000
 
-	count := 0
-
-	err := countingPump(N, nil).WithPipe().Run(func(i int) error {
-		if i != count {
-			return fmt.Errorf("unexpected parameter: %d instead of %d", i, count)
-		}
-
-		count++
-		return nil
-	})
+	count, err := runCountingPump(countingPump(N, nil).WithPipe())
 
 	if err != nil {
 		t.Error(err)
@@ -74,16 +66,7 @@ func TestPipelinedPumpSourceError(t *testing.T) {
 		MSG = "XXX"
 	)
 
-	count := 0
-
-	err := countingPump(N, errors.New(MSG)).WithPipe().Run(func(i int) error {
-		if i != count {
-			return fmt.Errorf("unexpected parameter: %d instead of %d", i, count)
-		}
-
-		count++
-		return nil
-	})
+	count, err := runCountingPump(countingPump(N, errors.New(MSG)).WithPipe())
 
 	if err == nil {
 		t.Error("missing expected error")
@@ -146,6 +129,99 @@ func TestDoubleRun(t *testing.T) {
 		t.Errorf("unexpected error message: %s", err)
 		return
 	}
+}
+
+func TestMap(t *testing.T) {
+	const N = 100
+
+	p := MapE(Map(countingPump(N, nil), strconv.Itoa), strconv.Atoi)
+
+	count, err := runCountingPump(p)
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if count != N {
+		t.Errorf("unexpected final value: %d instead of %d", count, N)
+		return
+	}
+}
+
+func TestAll(t *testing.T) {
+	const N = 100
+
+	p := All(countingPump(N, nil), Map(countingPump(N, nil), func(v int) int { return v + N }))
+
+	count, err := runCountingPump(p)
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if count != 2*N {
+		t.Errorf("unexpected final value: %d instead of %d", count, 2*N)
+		return
+	}
+}
+
+func TestBatch(t *testing.T) {
+	const (
+		N = 100
+		M = 9
+	)
+
+	p := Batch(countingPump(N, nil), M)
+	count, batches := 0, 0
+
+	err := p.Run(func(a []int) error {
+		for i, v := range a {
+			if v != count {
+				return fmt.Errorf("unexpected value at index %d: %d instead of %d", i, v, count)
+			}
+
+			count++
+		}
+
+		batches++
+		return nil
+	})
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if count != N {
+		t.Errorf("unexpected final value: %d instead of %d", count, N)
+		return
+	}
+
+	n := N / M
+
+	if N%M != 0 {
+		n++
+	}
+
+	if batches != n {
+		t.Errorf("unexpected number of batches: %d instead of %d", batches, n)
+		return
+	}
+}
+
+func runCountingPump(p *Pump[int]) (count int, err error) {
+	err = p.Run(func(v int) error {
+		if v != count {
+			return fmt.Errorf("unexpected parameter: %d instead of %d", v, count)
+		}
+
+		count++
+		return nil
+	})
+
+	return
 }
 
 func countingPump(N int, err error) *Pump[int] {
