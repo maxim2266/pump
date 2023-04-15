@@ -152,7 +152,7 @@ func TestMap(t *testing.T) {
 func TestAll(t *testing.T) {
 	const N = 100
 
-	p := All(countingPump(N, nil), Map(countingPump(N, nil), func(v int) int { return v + N }))
+	p := Chain(countingPump(N, nil), Map(countingPump(N, nil), func(v int) int { return v + N }))
 
 	count, err := runCountingPump(p)
 
@@ -211,7 +211,7 @@ func TestBatch(t *testing.T) {
 	}
 }
 
-func runCountingPump(p *Pump[int]) (count int, err error) {
+func runCountingPump(p *Handle[int]) (count int, err error) {
 	err = p.Run(func(v int) error {
 		if v != count {
 			return fmt.Errorf("unexpected parameter: %d instead of %d", v, count)
@@ -224,7 +224,7 @@ func runCountingPump(p *Pump[int]) (count int, err error) {
 	return
 }
 
-func countingPump(N int, err error) *Pump[int] {
+func countingPump(N int, err error) *Handle[int] {
 	return New(func(fn func(int) error) error {
 		for i := 0; i < N; i++ {
 			if e := fn(i); e != nil {

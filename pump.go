@@ -7,16 +7,16 @@ import (
 	"sync/atomic"
 )
 
-type Pump[T any] struct {
+type Handle[T any] struct {
 	pump func(func(T) error) error
 	done atomic.Bool
 }
 
-func New[T any](fn func(func(T) error) error) *Pump[T] {
-	return &Pump[T]{pump: fn}
+func New[T any](fn func(func(T) error) error) *Handle[T] {
+	return &Handle[T]{pump: fn}
 }
 
-func (p *Pump[T]) Run(fn func(T) error) error {
+func (p *Handle[T]) Run(fn func(T) error) error {
 	if !p.done.CompareAndSwap(false, true) {
 		return errors.New("pump: attempt to reuse a pump")
 	}
@@ -24,7 +24,7 @@ func (p *Pump[T]) Run(fn func(T) error) error {
 	return p.pump(fn)
 }
 
-func (p *Pump[T]) WithFilter(pred func(T) bool) *Pump[T] {
+func (p *Handle[T]) WithFilter(pred func(T) bool) *Handle[T] {
 	return New(func(fn func(T) error) error {
 		return p.Run(func(item T) (err error) {
 			if pred(item) {
@@ -36,7 +36,7 @@ func (p *Pump[T]) WithFilter(pred func(T) bool) *Pump[T] {
 	})
 }
 
-func (p *Pump[T]) WithPipe() *Pump[T] {
+func (p *Handle[T]) WithPipe() *Handle[T] {
 	return New(func(fn func(T) error) error {
 		queue := make(chan T, 20)
 		errch := make(chan error, 1)
@@ -76,7 +76,7 @@ func (p *Pump[T]) WithPipe() *Pump[T] {
 	})
 }
 
-func Batch[T any](src *Pump[T], size int) *Pump[[]T] {
+func Batch[T any](src *Handle[T], size int) *Handle[[]T] {
 	if size < 2 || size > 1_000_000_000 {
 		panic("pump: invalid batch size: " + strconv.Itoa(size))
 	}
@@ -104,7 +104,7 @@ func Batch[T any](src *Pump[T], size int) *Pump[[]T] {
 	})
 }
 
-func Map[T, U any](src *Pump[T], conv func(T) U) *Pump[U] {
+func Map[T, U any](src *Handle[T], conv func(T) U) *Handle[U] {
 	return New(func(fn func(U) error) error {
 		return src.Run(func(item T) error {
 			return fn(conv(item))
@@ -112,7 +112,7 @@ func Map[T, U any](src *Pump[T], conv func(T) U) *Pump[U] {
 	})
 }
 
-func MapE[T, U any](src *Pump[T], conv func(T) (U, error)) *Pump[U] {
+func MapE[T, U any](src *Handle[T], conv func(T) (U, error)) *Handle[U] {
 	return New(func(fn func(U) error) error {
 		return src.Run(func(item T) (err error) {
 			var v U
@@ -126,10 +126,10 @@ func MapE[T, U any](src *Pump[T], conv func(T) (U, error)) *Pump[U] {
 	})
 }
 
-func All[T any](args ...*Pump[T]) *Pump[T] {
+func Chain[T any](args ...*Handle[T]) *Handle[T] {
 	switch len(args) {
 	case 0:
-		panic("pump: All() called without arguments")
+		panic("pump: Chain() called without arguments")
 	case 1:
 		return args[0]
 	}
