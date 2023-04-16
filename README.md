@@ -50,7 +50,7 @@ Just as a little disclaimer, the framework is focussed on utility functions for 
 of the above signature, it does not help with development of such iterators, leaving this
 responsibility to the user.
 
-To give an example, a constructor for simple pump iterating over the given slice can look
+To give an example, a constructor for a simple pump iterating over the given slice can look
 like the following:
 ```Go
 func SlicePump[T any](s []T) *pump.Handle[T] {
