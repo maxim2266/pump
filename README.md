@@ -54,15 +54,15 @@ To give an example, a constructor for a simple pump iterating over the given sli
 like the following:
 ```Go
 func SlicePump[T any](s []T) *pump.Handle[T] {
-	return pump.New(func(yield func(T) error) error {
-		for _, item := range s {
-			if err := yield(item); err != nil {
-				return err
-			}
-		}
+    return pump.New(func(yield func(T) error) error {
+        for _, item := range s {
+            if err := yield(item); err != nil {
+                return err
+            }
+        }
 
-		return nil
-	})
+        return nil
+    })
 }
 ```
 although iteration over something as simple as a slice should better be done using
