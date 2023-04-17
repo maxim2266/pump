@@ -167,6 +167,24 @@ func TestAll(t *testing.T) {
 	}
 }
 
+func TestWhile(t *testing.T) {
+	const N = 100
+
+	p := countingPump(N, nil).While(func(v int) bool { return v < N/2 })
+
+	count, err := runCountingPump(p)
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if count != N/2 {
+		t.Errorf("unexpected final value: %d instead of %d", count, N/2)
+		return
+	}
+}
+
 func TestBatch(t *testing.T) {
 	const (
 		N = 100

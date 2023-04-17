@@ -43,6 +43,23 @@ func (p *Handle[T]) WithFilter(pred func(T) bool) *Handle[T] {
 	})
 }
 
+// While creates a new pump that passes through all the items while the given predicate
+// returns 'true'.
+func (p *Handle[T]) While(pred func(T) bool) *Handle[T] {
+	return New(func(yield func(T) error) error {
+		ok := true
+
+		return p.Run(func(item T) (err error) {
+			// here we simply swallow all the items after the predicate returns false
+			if ok = ok && pred(item); ok {
+				err = yield(item)
+			}
+
+			return
+		})
+	})
+}
+
 // WithPipe creates a new pump where the original pump runs from a dedicated goroutine,
 // while the calling goroutine is only involved in user callback invocations.
 func (p *Handle[T]) WithPipe() *Handle[T] {
