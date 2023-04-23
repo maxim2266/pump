@@ -60,46 +60,92 @@ func (p *Handle[T]) While(pred func(T) bool) *Handle[T] {
 	})
 }
 
-// WithPipe creates a new pump where the original pump runs from a dedicated goroutine,
+// WithPipe creates a new pump that runs the original pump from a dedicated goroutine,
 // while the calling goroutine is only involved in user callback invocations.
 func (p *Handle[T]) WithPipe() *Handle[T] {
+	return p.WithPipeCtx(context.Background())
+}
+
+// WithPipeCtx creates a new pump that runs the original pump from a dedicated goroutine,
+// while the calling goroutine is only involved in user callback invocations. The pipe
+// also stops when the given context is cancelled.
+func (p *Handle[T]) WithPipeCtx(parent context.Context) *Handle[T] {
 	return New(func(yield func(T) error) error {
-		queue := make(chan T, 20)
-		errch := make(chan error, 1)
-		ctx, cancel := context.WithCancel(context.Background())
+		pipe := newPipeCtx[T](parent, 1)
 
-		defer cancel()
+		defer pipe.cancel()
 
-		go func() {
-			defer func() {
-				close(queue)
-				close(errch)
-			}()
+		go pipe.run(p)
 
-			err := p.Run(func(item T) error {
-				select {
-				case queue <- item:
-					return nil
-				case <-ctx.Done():
-					return errors.New("pump cancelled") // just to stop the pump
-				}
-			})
-
-			if err != nil && ctx.Err() == nil {
-				errch <- err
-			}
-		}()
-
-		for item := range queue {
-			if err := yield(item); err != nil {
-				cancel()
-				<-errch // wait for the pump to stop
-				return err
-			}
-		}
-
-		return <-errch
+		return drain(pipe.queue, pipe.errch, pipe.cancel, yield)
 	})
+}
+
+// drain the given queue invoking the callback, and with error chaecks
+func drain[T any](
+	queue <-chan T,
+	errch <-chan error,
+	cancel func(),
+	yield func(T) error,
+) error {
+	for item := range queue {
+		if err := yield(item); err != nil {
+			cancel()
+
+			// wait for the pump to stop
+			for <-errch != nil {
+			}
+
+			return err
+		}
+	}
+
+	return <-errch
+}
+
+// pipe
+type pipeHandle[T any] struct {
+	ctx    context.Context
+	cancel func()
+	queue  chan T
+	errch  chan error
+	errRef int32
+}
+
+// pipe constructor
+func newPipeCtx[T any](parent context.Context, numErrWriters int) (p *pipeHandle[T]) {
+	p = &pipeHandle[T]{
+		queue:  make(chan T, 20),
+		errch:  make(chan error, numErrWriters),
+		errRef: int32(numErrWriters),
+	}
+
+	p.ctx, p.cancel = context.WithCancel(parent)
+	return p
+}
+
+// pipe feeder
+func (p *pipeHandle[T]) run(src *Handle[T]) {
+	defer func() {
+		close(p.queue)
+
+		if atomic.AddInt32(&p.errRef, -1) == 0 {
+			close(p.errch)
+		}
+	}()
+
+	err := src.Run(func(item T) error {
+		select {
+		case p.queue <- item:
+			return nil
+		case <-p.ctx.Done():
+			return p.ctx.Err()
+		}
+	})
+
+	if err != nil {
+		p.errch <- err
+	}
 }
 
 // Batch creates a new pump that yields its data in batches of the given size.
@@ -120,14 +166,11 @@ func Batch[T any](src *Handle[T], size int) *Handle[[]T] {
 			return
 		})
 
-		switch {
-		case err != nil:
-			return err
-		case len(batch) > 0:
-			return yield(batch)
-		default:
-			return nil
+		if err == nil && len(batch) > 0 {
+			err = yield(batch)
 		}
+
+		return err
 	})
 }
 
