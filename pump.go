@@ -121,10 +121,7 @@ func newPipeCtx[T any](parent context.Context, numErrWriters int) (p *pipeHandle
 func (p *pipeHandle[T]) run(src *Handle[T]) {
 	defer func() {
 		close(p.queue)
-
-		if atomic.AddInt32(&p.errRef, -1) == 0 {
-			close(p.errch)
-		}
+		p.done()
 	}()
 
 	err := src.Run(func(item T) error {
@@ -138,6 +135,12 @@ func (p *pipeHandle[T]) run(src *Handle[T]) {
 
 	if err != nil {
 		p.errch <- err
+	}
+}
+
+func (p *pipeHandle[T]) done() {
+	if atomic.AddInt32(&p.errRef, -1) == 0 {
+		close(p.errch)
 	}
 }
 
@@ -254,9 +257,7 @@ func PMapE[T, U any](src *Handle[T], np int, conv func(T) (U, error)) *Handle[U]
 						close(queue)
 					}
 
-					if atomic.AddInt32(&pipe.errRef, -1) == 0 {
-						close(pipe.errch)
-					}
+					pipe.done()
 				}()
 
 				for item := range pipe.queue {

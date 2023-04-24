@@ -31,9 +31,9 @@ func(func(T) error) error
 ```
 This is a function that iterates ("pumps") data to the given callback function of type `func(T) error`,
 stopping at the first error encountered, which in turn may either come from the iteration
-itself, or from the user callback. It is assumed, that every such iterator function may be
-called no more than once, so the framework actually wraps the iterator in an object of type
-`pump.Handle` that guarantees the single invocation property. The handle also gives methods to
+itself, or from the user callback. It is assumed, that every such pump may be called no more
+than once, so the framework actually wraps the iterator function into an object of type
+`pump.Handle` that enforces the single invocation property. The handle also gives methods to
 run the iteration, attach a filter, etc.
 
 The framework makes a clear distinction between constructing a pump and invoking it. Given a
@@ -49,8 +49,7 @@ The framework provides a number of utility functions for dealing with pumps, in 
 * `Chain` function to compose multiple pumps into one.
 
 Just as a little disclaimer, the framework is focussed on utility functions for the iterators
-of the above signature, it does not help with development of such iterators, leaving this
-responsibility to the user.
+of the above signature, it does not help with development of such iterators.
 
 To give an idea of how a pump can be created, here is a constructor for a pump iterating over
 the given slice:
@@ -67,8 +66,8 @@ func SlicePump[T any](s []T) *pump.Handle[T] {
     })
 }
 ```
-although, as already mentioned, in most situations iteration over something as simple as a
-slice should probably be done using a simple `for .. range` loop.
+although, as already mentioned, such a pump is only worth the effort where the iteration algorithm
+is stateful and complex, so the above code is here for the purpose of illustration only.
 
 For more details on each function see [documentation](https://godoc.org/github.com/maxim2266/pump).
 
