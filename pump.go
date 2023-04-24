@@ -24,7 +24,7 @@ func New[T any](fn func(func(T) error) error) *Handle[T] {
 // is returned if the pump has already been run.
 func (p *Handle[T]) Run(yield func(T) error) error {
 	if !p.done.CompareAndSwap(false, true) {
-		return errors.New("pump: attempt to reuse a pump")
+		return errors.New("pump.Run: attempt to reuse a pump")
 	}
 
 	return p.pump(yield)
@@ -63,15 +63,8 @@ func (p *Handle[T]) While(pred func(T) bool) *Handle[T] {
 // WithPipe creates a new pump that runs the original pump from a dedicated goroutine,
 // while the calling goroutine is only involved in user callback invocations.
 func (p *Handle[T]) WithPipe() *Handle[T] {
-	return p.WithPipeCtx(context.Background())
-}
-
-// WithPipeCtx creates a new pump that runs the original pump from a dedicated goroutine,
-// while the calling goroutine is only involved in user callback invocations. The pipe
-// also stops when the given context is cancelled.
-func (p *Handle[T]) WithPipeCtx(parent context.Context) *Handle[T] {
 	return New(func(yield func(T) error) error {
-		pipe := newPipeCtx[T](parent, 1)
+		pipe := newPipeCtx[T](context.Background(), 1)
 
 		defer pipe.cancel()
 
@@ -81,7 +74,7 @@ func (p *Handle[T]) WithPipeCtx(parent context.Context) *Handle[T] {
 	})
 }
 
-// drain the given queue invoking the callback, and with error chaecks
+// iterate the given queue, invoking the callback on each item, and with error checks
 func drain[T any](
 	queue <-chan T,
 	errch <-chan error,
@@ -151,7 +144,7 @@ func (p *pipeHandle[T]) run(src *Handle[T]) {
 // Batch creates a new pump that yields its data in batches of the given size.
 func Batch[T any](src *Handle[T], size int) *Handle[[]T] {
 	if size < 2 || size > 1_000_000_000 {
-		panic("pump: invalid batch size: " + strconv.Itoa(size))
+		panic("pump.Batch: invalid batch size: " + strconv.Itoa(size))
 	}
 
 	return New(func(yield func([]T) error) error {
@@ -183,6 +176,46 @@ func Map[T, U any](src *Handle[T], conv func(T) U) *Handle[U] {
 	})
 }
 
+// PMap does the same as pump.Map(), but the conversion function is executed in parallel from
+// `np` goroutines.
+func PMap[T, U any](src *Handle[T], np int, conv func(T) U) *Handle[U] {
+	if np < 1 || np > 10_000 {
+		panic("pump.PMap: invalid number of threads: " + strconv.Itoa(np))
+	}
+
+	return New(func(yield func(U) error) error {
+		pipe := newPipeCtx[T](context.Background(), 1)
+
+		defer pipe.cancel()
+
+		go pipe.run(src)
+
+		queue := make(chan U, 20)
+		queueRef := int32(np)
+
+		for i := 0; i < np; i++ {
+			go func() {
+				defer func() {
+					if atomic.AddInt32(&queueRef, -1) == 0 {
+						close(queue)
+					}
+				}()
+
+				for item := range pipe.queue {
+					select {
+					case queue <- conv(item):
+						// ok
+					case <-pipe.ctx.Done():
+						break
+					}
+				}
+			}()
+		}
+
+		return drain(queue, pipe.errch, pipe.cancel, yield)
+	})
+}
+
 // MapE is the same as pump.Map, but the mapping function may also return an error.
 func MapE[T, U any](src *Handle[T], conv func(T) (U, error)) *Handle[U] {
 	return New(func(yield func(U) error) error {
@@ -198,11 +231,62 @@ func MapE[T, U any](src *Handle[T], conv func(T) (U, error)) *Handle[U] {
 	})
 }
 
+// PMapE does the same as pump.PMap, but the mapping function may also return an error.
+func PMapE[T, U any](src *Handle[T], np int, conv func(T) (U, error)) *Handle[U] {
+	if np < 1 || np > 10_000 {
+		panic("pump.PMapE: invalid number of threads: " + strconv.Itoa(np))
+	}
+
+	return New(func(yield func(U) error) error {
+		pipe := newPipeCtx[T](context.Background(), np+1)
+
+		defer pipe.cancel()
+
+		go pipe.run(src)
+
+		queue := make(chan U, 20)
+		queueRef := int32(np)
+
+		for i := 0; i < np; i++ {
+			go func() {
+				defer func() {
+					if atomic.AddInt32(&queueRef, -1) == 0 {
+						close(queue)
+					}
+
+					if atomic.AddInt32(&pipe.errRef, -1) == 0 {
+						close(pipe.errch)
+					}
+				}()
+
+				for item := range pipe.queue {
+					v, err := conv(item)
+
+					if err != nil {
+						pipe.errch <- err
+						pipe.cancel()
+						break
+					}
+
+					select {
+					case queue <- v:
+						// ok
+					case <-pipe.ctx.Done():
+						break
+					}
+				}
+			}()
+		}
+
+		return drain(queue, pipe.errch, pipe.cancel, yield)
+	})
+}
+
 // Chain creates a new pump that invokes the given pumps one by one, from left to right.
 func Chain[T any](args ...*Handle[T]) *Handle[T] {
 	switch len(args) {
 	case 0:
-		panic("pump: Chain() called without arguments")
+		panic("pump.Chain: no pumps to compose")
 	case 1:
 		return args[0]
 	}

@@ -43,6 +43,7 @@ create new pumps from the existing ones.
 The framework provides a number of utility functions for dealing with pumps, in particular:
 * `Map` to convert a pump of type `T` to another pump of type `U` via a function `func(T) U`;
 	There is also a `MapE` version that maps via function `func(T) (U, error)`.
+* `PMap` and `PMapE` - parallel versions of `Map` and `MapE` respectively.
 * `Batch` to convert a pump to a batched version that invokes its callback with batches
 	of the given size.
 * `Chain` function to compose multiple pumps into one.
@@ -51,8 +52,8 @@ Just as a little disclaimer, the framework is focussed on utility functions for 
 of the above signature, it does not help with development of such iterators, leaving this
 responsibility to the user.
 
-To give an example, a constructor for a pump iterating over the given slice can look
-like the following:
+To give an idea of how a pump can be created, here is a constructor for a pump iterating over
+the given slice:
 ```Go
 func SlicePump[T any](s []T) *pump.Handle[T] {
     return pump.New(func(yield func(T) error) error {
@@ -66,8 +67,8 @@ func SlicePump[T any](s []T) *pump.Handle[T] {
     })
 }
 ```
-although, as already mentioned, an iteration over something as simple as a slice should better
-be done using a `for .. range` loop.
+although, as already mentioned, in most situations iteration over something as simple as a
+slice should probably be done using a simple `for .. range` loop.
 
 For more details on each function see [documentation](https://godoc.org/github.com/maxim2266/pump).
 

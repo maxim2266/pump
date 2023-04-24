@@ -3,6 +3,7 @@ package pump
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"testing"
 )
@@ -125,7 +126,7 @@ func TestDoubleRun(t *testing.T) {
 		return
 	}
 
-	if err.Error() != "pump: attempt to reuse a pump" {
+	if err.Error() != "pump.Run: attempt to reuse a pump" {
 		t.Errorf("unexpected error message: %s", err)
 		return
 	}
@@ -149,7 +150,121 @@ func TestMap(t *testing.T) {
 	}
 }
 
-func TestAll(t *testing.T) {
+func TestPMap(t *testing.T) {
+	const N = 10_000
+
+	p := PMapE(PMap(countingPump(N, nil), 4, strconv.Itoa), 4, strconv.Atoi)
+	res := make([]int, 0, N)
+
+	err := p.Run(func(v int) error {
+		res = append(res, v)
+		return nil
+	})
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if len(res) != N {
+		t.Errorf("unexpected result size: %d instead of %d", len(res), N)
+		return
+	}
+
+	sort.Ints(res)
+
+	for i, v := range res {
+		if i != v {
+			t.Errorf("unexpected value: %d instead of %d", v, i)
+			return
+		}
+	}
+}
+
+func TestPMapSourceError(t *testing.T) {
+	const N = 100
+	const MSG = "XXX"
+
+	p := PMapE(PMap(countingPump(N, errors.New(MSG)), 4, strconv.Itoa), 4, strconv.Atoi)
+
+	var count int
+
+	err := p.Run(func(_ int) error { count++; return nil })
+
+	if err == nil {
+		t.Error("missing error")
+		return
+	}
+
+	if err.Error() != MSG {
+		t.Errorf("unexpected error message: %q", err)
+		return
+	}
+
+	t.Log(count)
+}
+
+func TestPMapDestError(t *testing.T) {
+	const N = 1000
+	const MSG = "XXX"
+
+	p := PMapE(PMap(countingPump(N, nil), 4, strconv.Itoa), 4, strconv.Atoi)
+
+	var count int
+
+	err := p.Run(func(_ int) (err error) {
+		if count++; count == 100 {
+			err = errors.New(MSG)
+		}
+
+		return
+	})
+
+	if err == nil {
+		t.Error("missing error")
+		return
+	}
+
+	if err.Error() != MSG {
+		t.Errorf("unexpected error message: %q", err)
+		return
+	}
+
+	t.Log(count)
+}
+
+func TestPMapConvError(t *testing.T) {
+	const N = 1000
+	const MSG = "XXX"
+
+	var count int
+
+	p := PMapE(PMap(countingPump(N, nil), 4, strconv.Itoa), 4, func(s string) (int, error) {
+		if count++; count == 100 {
+			return 0, errors.New(MSG)
+		}
+
+		return strconv.Atoi(s)
+	})
+
+	var numCalls int
+
+	err := p.Run(func(_ int) error { numCalls++; return nil })
+
+	if err == nil {
+		t.Error("missing error")
+		return
+	}
+
+	if err.Error() != MSG {
+		t.Errorf("unexpected error message: %q", err)
+		return
+	}
+
+	t.Log(count, numCalls)
+}
+
+func TestChain(t *testing.T) {
 	const N = 100
 
 	p := Chain(countingPump(N, nil), Map(countingPump(N, nil), func(v int) int { return v + N }))
