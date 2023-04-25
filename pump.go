@@ -70,14 +70,14 @@ func (p *Handle[T]) WithPipe() *Handle[T] {
 
 		go pipe.run(p)
 
-		return drain(pipe.queue, pipe.errch, pipe.cancel, yield)
+		return drain(pipe.queue, pipe.errChan, pipe.cancel, yield)
 	})
 }
 
 // iterate the given queue, invoking the callback on each item, and with error checks
 func drain[T any](
 	queue <-chan T,
-	errch <-chan error,
+	errChan <-chan error,
 	cancel func(),
 	yield func(T) error,
 ) error {
@@ -86,31 +86,31 @@ func drain[T any](
 			cancel()
 
 			// wait for the pump to stop
-			for <-errch != nil {
+			for <-errChan != nil {
 			}
 
 			return err
 		}
 	}
 
-	return <-errch
+	return <-errChan
 }
 
 // pipe
 type pipeHandle[T any] struct {
-	ctx    context.Context
-	cancel func()
-	queue  chan T
-	errch  chan error
-	errRef int32
+	ctx     context.Context
+	cancel  func()
+	queue   chan T
+	errChan chan error
+	errRef  int32
 }
 
 // pipe constructor
 func newPipeCtx[T any](parent context.Context, numErrWriters int) (p *pipeHandle[T]) {
 	p = &pipeHandle[T]{
-		queue:  make(chan T, 20),
-		errch:  make(chan error, numErrWriters),
-		errRef: int32(numErrWriters),
+		queue:   make(chan T, 20),
+		errChan: make(chan error, numErrWriters),
+		errRef:  int32(numErrWriters),
 	}
 
 	p.ctx, p.cancel = context.WithCancel(parent)
@@ -134,13 +134,13 @@ func (p *pipeHandle[T]) run(src *Handle[T]) {
 	})
 
 	if err != nil {
-		p.errch <- err
+		p.errChan <- err
 	}
 }
 
 func (p *pipeHandle[T]) done() {
 	if atomic.AddInt32(&p.errRef, -1) == 0 {
-		close(p.errch)
+		close(p.errChan)
 	}
 }
 
@@ -215,7 +215,7 @@ func PMap[T, U any](src *Handle[T], np int, conv func(T) U) *Handle[U] {
 			}()
 		}
 
-		return drain(queue, pipe.errch, pipe.cancel, yield)
+		return drain(queue, pipe.errChan, pipe.cancel, yield)
 	})
 }
 
@@ -264,7 +264,7 @@ func PMapE[T, U any](src *Handle[T], np int, conv func(T) (U, error)) *Handle[U]
 					v, err := conv(item)
 
 					if err != nil {
-						pipe.errch <- err
+						pipe.errChan <- err
 						pipe.cancel()
 						break
 					}
@@ -279,7 +279,7 @@ func PMapE[T, U any](src *Handle[T], np int, conv func(T) (U, error)) *Handle[U]
 			}()
 		}
 
-		return drain(queue, pipe.errch, pipe.cancel, yield)
+		return drain(queue, pipe.errChan, pipe.cancel, yield)
 	})
 }
 
