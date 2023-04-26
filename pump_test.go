@@ -126,7 +126,7 @@ func TestDoubleRun(t *testing.T) {
 		return
 	}
 
-	if err.Error() != "pump.Run: attempt to reuse a pump" {
+	if err.Error() != "pump.Run: detected an attempt to reuse a pump" {
 		t.Errorf("unexpected error message: %s", err)
 		return
 	}

@@ -24,7 +24,7 @@ func New[T any](fn func(func(T) error) error) *Handle[T] {
 // is returned if the pump has already been run.
 func (p *Handle[T]) Run(yield func(T) error) error {
 	if !p.done.CompareAndSwap(false, true) {
-		return errors.New("pump.Run: attempt to reuse a pump")
+		return errors.New("pump.Run: detected an attempt to reuse a pump")
 	}
 
 	return p.pump(yield)
@@ -64,13 +64,13 @@ func (p *Handle[T]) While(pred func(T) bool) *Handle[T] {
 // while the calling goroutine is only involved in user callback invocations.
 func (p *Handle[T]) WithPipe() *Handle[T] {
 	return New(func(yield func(T) error) error {
-		pipe := newPipeCtx[T](context.Background(), 1)
+		feeder := newFeederCtx[T](context.Background(), 1)
 
-		defer pipe.cancel()
+		defer feeder.cancel()
 
-		go pipe.run(p)
+		go feeder.run(p)
 
-		return drain(pipe.queue, pipe.errChan, pipe.cancel, yield)
+		return drain(feeder.queue, feeder.errChan, feeder.cancel, yield)
 	})
 }
 
@@ -96,8 +96,8 @@ func drain[T any](
 	return <-errChan
 }
 
-// pipe
-type pipeHandle[T any] struct {
+// pipe feeder
+type feederHandle[T any] struct {
 	ctx     context.Context
 	cancel  func()
 	queue   chan T
@@ -105,47 +105,50 @@ type pipeHandle[T any] struct {
 	errRef  int32
 }
 
-// pipe constructor
-func newPipeCtx[T any](parent context.Context, numErrWriters int) (p *pipeHandle[T]) {
-	p = &pipeHandle[T]{
-		queue:   make(chan T, 20),
+const chanSize = 20
+
+// pipe feeder constructor
+func newFeederCtx[T any](parent context.Context, numErrWriters int) *feederHandle[T] {
+	feeder := &feederHandle[T]{
+		queue:   make(chan T, chanSize),
 		errChan: make(chan error, numErrWriters),
 		errRef:  int32(numErrWriters),
 	}
 
-	p.ctx, p.cancel = context.WithCancel(parent)
-	return p
+	feeder.ctx, feeder.cancel = context.WithCancel(parent)
+	return feeder
 }
 
-// pipe feeder
-func (p *pipeHandle[T]) run(src *Handle[T]) {
+// feed the pipe
+func (feeder *feederHandle[T]) run(p *Handle[T]) {
 	defer func() {
-		close(p.queue)
-		p.done()
+		close(feeder.queue)
+		feeder.done()
 	}()
 
-	err := src.Run(func(item T) error {
+	err := p.Run(func(item T) error {
 		select {
-		case p.queue <- item:
+		case feeder.queue <- item:
 			return nil
-		case <-p.ctx.Done():
-			return p.ctx.Err()
+		case <-feeder.ctx.Done():
+			return feeder.ctx.Err()
 		}
 	})
 
 	if err != nil {
-		p.errChan <- err
+		feeder.errChan <- err
 	}
 }
 
-func (p *pipeHandle[T]) done() {
-	if atomic.AddInt32(&p.errRef, -1) == 0 {
-		close(p.errChan)
+// feeder completion function
+func (feeder *feederHandle[T]) done() {
+	if atomic.AddInt32(&feeder.errRef, -1) == 0 {
+		close(feeder.errChan)
 	}
 }
 
 // Batch creates a new pump that yields its data in batches of the given size.
-func Batch[T any](src *Handle[T], size int) *Handle[[]T] {
+func Batch[T any](p *Handle[T], size int) *Handle[[]T] {
 	if size < 2 || size > 1_000_000_000 {
 		panic("pump.Batch: invalid batch size: " + strconv.Itoa(size))
 	}
@@ -153,7 +156,7 @@ func Batch[T any](src *Handle[T], size int) *Handle[[]T] {
 	return New(func(yield func([]T) error) error {
 		batch := make([]T, 0, size)
 
-		err := src.Run(func(item T) (err error) {
+		err := p.Run(func(item T) (err error) {
 			if batch = append(batch, item); len(batch) == size {
 				err = yield(batch)
 				batch = batch[:0]
@@ -171,9 +174,9 @@ func Batch[T any](src *Handle[T], size int) *Handle[[]T] {
 }
 
 // Map creates a new pump that converts data from the original pump via the given function.
-func Map[T, U any](src *Handle[T], conv func(T) U) *Handle[U] {
+func Map[T, U any](p *Handle[T], conv func(T) U) *Handle[U] {
 	return New(func(yield func(U) error) error {
-		return src.Run(func(item T) error {
+		return p.Run(func(item T) error {
 			return yield(conv(item))
 		})
 	})
@@ -181,19 +184,19 @@ func Map[T, U any](src *Handle[T], conv func(T) U) *Handle[U] {
 
 // PMap does the same as pump.Map(), but the conversion function is executed in parallel from
 // `np` goroutines.
-func PMap[T, U any](src *Handle[T], np int, conv func(T) U) *Handle[U] {
+func PMap[T, U any](p *Handle[T], np int, conv func(T) U) *Handle[U] {
 	if np < 1 || np > 10_000 {
 		panic("pump.PMap: invalid number of threads: " + strconv.Itoa(np))
 	}
 
 	return New(func(yield func(U) error) error {
-		pipe := newPipeCtx[T](context.Background(), 1)
+		feeder := newFeederCtx[T](context.Background(), 1)
 
-		defer pipe.cancel()
+		defer feeder.cancel()
 
-		go pipe.run(src)
+		go feeder.run(p)
 
-		queue := make(chan U, 20)
+		queue := make(chan U, chanSize)
 		queueRef := int32(np)
 
 		for i := 0; i < np; i++ {
@@ -204,25 +207,25 @@ func PMap[T, U any](src *Handle[T], np int, conv func(T) U) *Handle[U] {
 					}
 				}()
 
-				for item := range pipe.queue {
+				for item := range feeder.queue {
 					select {
 					case queue <- conv(item):
 						// ok
-					case <-pipe.ctx.Done():
+					case <-feeder.ctx.Done():
 						break
 					}
 				}
 			}()
 		}
 
-		return drain(queue, pipe.errChan, pipe.cancel, yield)
+		return drain(queue, feeder.errChan, feeder.cancel, yield)
 	})
 }
 
 // MapE is the same as pump.Map, but the mapping function may also return an error.
-func MapE[T, U any](src *Handle[T], conv func(T) (U, error)) *Handle[U] {
+func MapE[T, U any](p *Handle[T], conv func(T) (U, error)) *Handle[U] {
 	return New(func(yield func(U) error) error {
-		return src.Run(func(item T) (err error) {
+		return p.Run(func(item T) (err error) {
 			var v U
 
 			if v, err = conv(item); err == nil {
@@ -235,19 +238,19 @@ func MapE[T, U any](src *Handle[T], conv func(T) (U, error)) *Handle[U] {
 }
 
 // PMapE does the same as pump.PMap, but the mapping function may also return an error.
-func PMapE[T, U any](src *Handle[T], np int, conv func(T) (U, error)) *Handle[U] {
+func PMapE[T, U any](p *Handle[T], np int, conv func(T) (U, error)) *Handle[U] {
 	if np < 1 || np > 10_000 {
 		panic("pump.PMapE: invalid number of threads: " + strconv.Itoa(np))
 	}
 
 	return New(func(yield func(U) error) error {
-		pipe := newPipeCtx[T](context.Background(), np+1)
+		feeder := newFeederCtx[T](context.Background(), np+1)
 
-		defer pipe.cancel()
+		defer feeder.cancel()
 
-		go pipe.run(src)
+		go feeder.run(p)
 
-		queue := make(chan U, 20)
+		queue := make(chan U, chanSize)
 		queueRef := int32(np)
 
 		for i := 0; i < np; i++ {
@@ -257,29 +260,29 @@ func PMapE[T, U any](src *Handle[T], np int, conv func(T) (U, error)) *Handle[U]
 						close(queue)
 					}
 
-					pipe.done()
+					feeder.done()
 				}()
 
-				for item := range pipe.queue {
+				for item := range feeder.queue {
 					v, err := conv(item)
 
 					if err != nil {
-						pipe.errChan <- err
-						pipe.cancel()
+						feeder.errChan <- err
+						feeder.cancel()
 						break
 					}
 
 					select {
 					case queue <- v:
 						// ok
-					case <-pipe.ctx.Done():
+					case <-feeder.ctx.Done():
 						break
 					}
 				}
 			}()
 		}
 
-		return drain(queue, pipe.errChan, pipe.cancel, yield)
+		return drain(queue, feeder.errChan, feeder.cancel, yield)
 	})
 }
 
