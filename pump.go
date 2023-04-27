@@ -43,9 +43,9 @@ func (p *Handle[T]) WithFilter(pred func(T) bool) *Handle[T] {
 	})
 }
 
-// While creates a new pump that passes through all the items while the given predicate
+// LetWhile creates a new pump that passes through all the items while the given predicate
 // returns 'true'.
-func (p *Handle[T]) While(pred func(T) bool) *Handle[T] {
+func (p *Handle[T]) LetWhile(pred func(T) bool) *Handle[T] {
 	return New(func(yield func(T) error) error {
 		ok := true
 
