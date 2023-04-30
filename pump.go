@@ -214,7 +214,7 @@ func PMap[T, U any](p *Handle[T], np int, conv func(T) U) *Handle[U] {
 					case queue <- conv(item):
 						// ok
 					case <-feeder.ctx.Done():
-						break
+						return
 					}
 				}
 			}()
@@ -271,14 +271,14 @@ func PMapE[T, U any](p *Handle[T], np int, conv func(T) (U, error)) *Handle[U] {
 					if err != nil {
 						feeder.errChan <- err
 						feeder.cancel()
-						break
+						return
 					}
 
 					select {
 					case queue <- v:
 						// ok
 					case <-feeder.ctx.Done():
-						break
+						return
 					}
 				}
 			}()
