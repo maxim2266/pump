@@ -30,7 +30,7 @@ func (p *Handle[T]) Run(yield func(T) error) error {
 	return p.pump(yield)
 }
 
-// WithFilter creates a new pump where the data are filtered using the given predicate.
+// WithFilter creates a new pump where the data items are filtered using the given predicate.
 func (p *Handle[T]) WithFilter(pred func(T) bool) *Handle[T] {
 	return New(func(yield func(T) error) error {
 		return p.Run(func(item T) (err error) {
@@ -43,9 +43,9 @@ func (p *Handle[T]) WithFilter(pred func(T) bool) *Handle[T] {
 	})
 }
 
-// LetWhile creates a new pump that passes through all the items while the given predicate
+// WithWhileCond creates a new pump that passes through all the items while the given predicate
 // returns 'true'.
-func (p *Handle[T]) LetWhile(pred func(T) bool) *Handle[T] {
+func (p *Handle[T]) WithWhileCond(pred func(T) bool) *Handle[T] {
 	return New(func(yield func(T) error) error {
 		ok := true
 
@@ -105,6 +105,8 @@ type feederHandle[T any] struct {
 	errRef  int32
 }
 
+// this value is found by running a number of (micro-)benchmarks, so I am assuming it
+// "should be" good enough in general.
 const chanSize = 20
 
 // pipe feeder constructor
@@ -182,8 +184,8 @@ func Map[T, U any](p *Handle[T], conv func(T) U) *Handle[U] {
 	})
 }
 
-// PMap does the same as pump.Map(), but the conversion function is executed in parallel from
-// `np` goroutines.
+// PMap does the same as pump.Map, but the conversion function is executed in parallel
+// using `np` goroutines.
 func PMap[T, U any](p *Handle[T], np int, conv func(T) U) *Handle[U] {
 	if np < 1 || np > 10_000 {
 		panic("pump.PMap: invalid number of threads: " + strconv.Itoa(np))

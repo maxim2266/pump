@@ -285,7 +285,7 @@ func TestChain(t *testing.T) {
 func TestLetWhile(t *testing.T) {
 	const N = 100
 
-	p := countingPump(N, nil).LetWhile(func(v int) bool { return v < N/2 })
+	p := countingPump(N, nil).WithWhileCond(func(v int) bool { return v < N/2 })
 
 	count, err := runCountingPump(p)
 
