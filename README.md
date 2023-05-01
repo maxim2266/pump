@@ -22,7 +22,7 @@ of the iterator function, because even a panic from the user callback can be int
 an appropriate action taken (like closing some resource handles, or removing temporary files).
 The drawback of this model is the overhead of the function call that in every particular case
 the compiler may or may not be able to inline, so this model is mostly suitable for complex
-iterators or generators where such overhead is relatively small.
+iterators (or Python-style generators) where such overhead is relatively small.
 
 This project is aiming to provide a common framework for composing and enriching callback-based
 iterators. Each iterator over a sequence of elements of type `T` is represented as a function of
@@ -34,20 +34,21 @@ This is a function that iterates ("pumps") data to the given callback function o
 stopping at the first error encountered, which in turn may either come from the iteration
 itself, or from the user callback. It is assumed, that every such pump may be called no more
 than once, so the framework actually wraps the iterator function in an object of type
-`pump.Handle` that enforces the single invocation property. The handle also gives methods to
-run the iteration, attach a filter, etc.
+`pump.Handle` that enforces the single invocation property. In practice, many pumps
+involve some kind of I/O, hence the `error` return type in the signature.
 
 The framework makes a clear distinction between constructing a pump and invoking it. Given a
-pump handle, it can be invoked using `Run` method. All the other functions and methods only
-create new pumps from the existing ones.
-
-The framework provides a number of utility functions for dealing with pumps, in particular:
-* `Map` to convert a pump of type `T` to another pump of type `U` via a function `func(T) U`;
-	There is also a `MapE` version that maps via function `func(T) (U, error)`.
+pump handle, it can be invoked using its `Run` method, all the other functions only
+create new pumps from the existing ones:
+* `Filter` creates a pump that filters its source through the given predicate.
+* `While` creates a pump that takes items from its source only while the given predicate is `true`.
+* `Pipe` creates a piped version of a pump where the source pump is run from a dedicated goroutine.
+* `Map` converts a pump of type `T` to another pump of type `U` via a function `func(T) U` applied
+	to each data item; there is also a `MapE` version that maps via function `func(T) (U, error)`.
 * `PMap` and `PMapE` - parallel versions of `Map` and `MapE` respectively.
-* `Batch` to convert a pump to a batched version that invokes its callback with batches
+* `Batch` converts a pump to a batched version that invokes its callback with batches
 	of the given size.
-* `Chain` function to compose multiple pumps into one.
+* `Chain` creates a pump that invokes the given pumps one after another.
 
 Just as a little disclaimer, the framework is focussed on utility functions for the iterators
 of the above signature, but the user is still responsible for developing such iterators.
@@ -66,8 +67,8 @@ func SlicePump[T any](s []T) *pump.Handle[T] {
     })
 }
 ```
-although, as already mentioned, such a pump is only worth the effort where the iteration algorithm
-is stateful and complex, so the above code is here for the purpose of illustration only.
+although, as already mentioned, constructing a pump is only worth the effort where the iteration
+algorithm is stateful and complex, so the above code is here for the purpose of illustration only.
 
 For more details on each function see [documentation](https://godoc.org/github.com/maxim2266/pump).
 

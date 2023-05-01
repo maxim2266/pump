@@ -11,7 +11,7 @@ import (
 func TestPipelinedPump(t *testing.T) {
 	const N = 1_000_000
 
-	count, err := runCountingPump(countingPump(N, nil).WithPipe())
+	count, err := runCountingPump(Pipe(countingPump(N, nil)))
 
 	if err != nil {
 		t.Error(err)
@@ -29,7 +29,7 @@ func TestPipelinedPumpError(t *testing.T) {
 
 	count := 0
 
-	err := countingPump(N, nil).WithPipe().Run(func(i int) error {
+	err := Pipe(countingPump(N, nil)).Run(func(i int) error {
 		if count >= N/2 {
 			return fmt.Errorf("unexpected call with value %d", i)
 		}
@@ -67,7 +67,7 @@ func TestPipelinedPumpSourceError(t *testing.T) {
 		MSG = "XXX"
 	)
 
-	count, err := runCountingPump(countingPump(N, errors.New(MSG)).WithPipe())
+	count, err := runCountingPump(Pipe(countingPump(N, errors.New(MSG))))
 
 	if err == nil {
 		t.Error("missing expected error")
@@ -88,7 +88,7 @@ func TestPipelinedPumpSourceError(t *testing.T) {
 func TestFilteredPump(t *testing.T) {
 	const N = 1000
 
-	p := countingPump(N, nil).WithFilter(func(v int) bool { return v&1 == 1 })
+	p := Filter(countingPump(N, nil), func(v int) bool { return v&1 == 1 })
 	count := 0
 
 	err := p.Run(func(v int) error {
@@ -285,7 +285,7 @@ func TestChain(t *testing.T) {
 func TestLetWhile(t *testing.T) {
 	const N = 100
 
-	p := countingPump(N, nil).WithWhileCond(func(v int) bool { return v < N/2 })
+	p := While(countingPump(N, nil), func(v int) bool { return v < N/2 })
 
 	count, err := runCountingPump(p)
 

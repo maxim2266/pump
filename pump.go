@@ -30,8 +30,13 @@ func (p *Handle[T]) Run(yield func(T) error) error {
 	return p.pump(yield)
 }
 
-// WithFilter creates a new pump where the data items are filtered using the given predicate.
-func (p *Handle[T]) WithFilter(pred func(T) bool) *Handle[T] {
+// Done checks if the pump has already been used and thus cannot be invoked again.
+func (p *Handle[T]) Done() bool {
+	return p.done.Load()
+}
+
+// Filter creates a new pump where the data items are filtered through the given predicate.
+func Filter[T any](p *Handle[T], pred func(T) bool) *Handle[T] {
 	return New(func(yield func(T) error) error {
 		return p.Run(func(item T) (err error) {
 			if pred(item) {
@@ -43,9 +48,9 @@ func (p *Handle[T]) WithFilter(pred func(T) bool) *Handle[T] {
 	})
 }
 
-// WithWhileCond creates a new pump that passes through all the items while the given predicate
+// While creates a new pump that passes through all the items while the given predicate
 // returns 'true'.
-func (p *Handle[T]) WithWhileCond(pred func(T) bool) *Handle[T] {
+func While[T any](p *Handle[T], pred func(T) bool) *Handle[T] {
 	return New(func(yield func(T) error) error {
 		ok := true
 
@@ -60,9 +65,9 @@ func (p *Handle[T]) WithWhileCond(pred func(T) bool) *Handle[T] {
 	})
 }
 
-// WithPipe creates a new pump that runs the original pump from a dedicated goroutine,
+// Pipe creates a new pump that runs the original pump from a dedicated goroutine,
 // while the calling goroutine is only involved in user callback invocations.
-func (p *Handle[T]) WithPipe() *Handle[T] {
+func Pipe[T any](p *Handle[T]) *Handle[T] {
 	return New(func(yield func(T) error) error {
 		feeder := newFeederCtx[T](context.Background(), 1)
 
@@ -106,7 +111,7 @@ type feederHandle[T any] struct {
 }
 
 // this value is found by running a number of (micro-)benchmarks, so I am assuming it
-// "should be" good enough in general.
+// "should be" good enough in general, but it's a big assumption.
 const chanSize = 20
 
 // pipe feeder constructor
@@ -185,10 +190,10 @@ func Map[T, U any](p *Handle[T], conv func(T) U) *Handle[U] {
 }
 
 // PMap does the same as pump.Map, but the conversion function is executed in parallel
-// using `np` goroutines.
-func PMap[T, U any](p *Handle[T], np int, conv func(T) U) *Handle[U] {
-	if np < 1 || np > 10_000 {
-		panic("pump.PMap: invalid number of threads: " + strconv.Itoa(np))
+// using `n` goroutines.
+func PMap[T, U any](p *Handle[T], n int, conv func(T) U) *Handle[U] {
+	if n < 1 || n > 10_000 {
+		panic("pump.PMap: invalid number of threads: " + strconv.Itoa(n))
 	}
 
 	return New(func(yield func(U) error) error {
@@ -199,9 +204,9 @@ func PMap[T, U any](p *Handle[T], np int, conv func(T) U) *Handle[U] {
 		go feeder.run(p)
 
 		queue := make(chan U, chanSize)
-		queueRef := int32(np)
+		queueRef := int32(n)
 
-		for i := 0; i < np; i++ {
+		for i := 0; i < n; i++ {
 			go func() {
 				defer func() {
 					if atomic.AddInt32(&queueRef, -1) == 0 {
@@ -240,22 +245,22 @@ func MapE[T, U any](p *Handle[T], conv func(T) (U, error)) *Handle[U] {
 }
 
 // PMapE does the same as pump.PMap, but the mapping function may also return an error.
-func PMapE[T, U any](p *Handle[T], np int, conv func(T) (U, error)) *Handle[U] {
-	if np < 1 || np > 10_000 {
-		panic("pump.PMapE: invalid number of threads: " + strconv.Itoa(np))
+func PMapE[T, U any](p *Handle[T], n int, conv func(T) (U, error)) *Handle[U] {
+	if n < 1 || n > 10_000 {
+		panic("pump.PMapE: invalid number of threads: " + strconv.Itoa(n))
 	}
 
 	return New(func(yield func(U) error) error {
-		feeder := newFeederCtx[T](context.Background(), np+1)
+		feeder := newFeederCtx[T](context.Background(), n+1)
 
 		defer feeder.cancel()
 
 		go feeder.run(p)
 
 		queue := make(chan U, chanSize)
-		queueRef := int32(np)
+		queueRef := int32(n)
 
-		for i := 0; i < np; i++ {
+		for i := 0; i < n; i++ {
 			go func() {
 				defer func() {
 					if atomic.AddInt32(&queueRef, -1) == 0 {
