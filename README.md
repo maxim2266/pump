@@ -32,10 +32,10 @@ func(func(T) error) error
 ```
 This is a function that iterates ("pumps") data to the given callback function of type `func(T) error`,
 stopping at the first error encountered, which in turn may either come from the iteration
-itself, or from the user callback. It is assumed, that every such pump may be called no more
-than once, so the framework actually wraps the iterator function in an object of type
-`pump.Handle` that enforces the single invocation property. In practice, many pumps
-involve some kind of I/O, hence the `error` return type in the signature.
+itself, or from the user callback. In practice, many pumps involve some kind of I/O, hence the
+`error` return type in the signature. It is assumed that every such pump may be called no more
+than once, so the framework actually wraps up the iterator function in an object of type
+`pump.H` (a pipe handle) that enforces the single invocation property.
 
 The framework makes a clear distinction between constructing a pump and invoking it. Given a
 pump handle, it can be invoked using its `Run` method, all the other functions only
@@ -55,9 +55,9 @@ of the above signature, but the user is still responsible for developing such it
 To give an idea of how a pump can be created, here is a constructor of a pump iterating over
 the given slice:
 ```Go
-func SlicePump[T any](s []T) *pump.Handle[T] {
+func SlicePump[T any](list []T) *pump.H[T] {
     return pump.New(func(yield func(T) error) error {
-        for _, item := range s {
+        for _, item := range list {
             if err := yield(item); err != nil {
                 return err
             }

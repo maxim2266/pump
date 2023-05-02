@@ -8,21 +8,20 @@ import (
 	"sync/atomic"
 )
 
-// Handle wraps up the iterator function to make sure the function is invoked
-// no more than once.
-type Handle[T any] struct {
+// H is a pump handle for the given type T.
+type H[T any] struct {
 	pump func(func(T) error) error
 	done atomic.Bool
 }
 
 // New constructs a new pump handle from the given iterator function.
-func New[T any](fn func(func(T) error) error) *Handle[T] {
-	return &Handle[T]{pump: fn}
+func New[T any](fn func(func(T) error) error) *H[T] {
+	return &H[T]{pump: fn}
 }
 
 // Run invokes the underlying iterator with the given callback function. An error
 // is returned if the pump has already been run.
-func (p *Handle[T]) Run(yield func(T) error) error {
+func (p *H[T]) Run(yield func(T) error) error {
 	if !p.done.CompareAndSwap(false, true) {
 		return errors.New("pump.Run: detected an attempt to reuse a pump")
 	}
@@ -31,12 +30,12 @@ func (p *Handle[T]) Run(yield func(T) error) error {
 }
 
 // Done checks if the pump has already been used and thus cannot be invoked again.
-func (p *Handle[T]) Done() bool {
+func (p *H[T]) Done() bool {
 	return p.done.Load()
 }
 
 // Filter creates a new pump where the data items are filtered through the given predicate.
-func Filter[T any](p *Handle[T], pred func(T) bool) *Handle[T] {
+func Filter[T any](p *H[T], pred func(T) bool) *H[T] {
 	return New(func(yield func(T) error) error {
 		return p.Run(func(item T) (err error) {
 			if pred(item) {
@@ -50,7 +49,7 @@ func Filter[T any](p *Handle[T], pred func(T) bool) *Handle[T] {
 
 // While creates a new pump that passes through all the items while the given predicate
 // returns 'true'.
-func While[T any](p *Handle[T], pred func(T) bool) *Handle[T] {
+func While[T any](p *H[T], pred func(T) bool) *H[T] {
 	return New(func(yield func(T) error) error {
 		ok := true
 
@@ -67,7 +66,7 @@ func While[T any](p *Handle[T], pred func(T) bool) *Handle[T] {
 
 // Pipe creates a new pump that runs the original pump from a dedicated goroutine,
 // while the calling goroutine is only involved in user callback invocations.
-func Pipe[T any](p *Handle[T]) *Handle[T] {
+func Pipe[T any](p *H[T]) *H[T] {
 	return New(func(yield func(T) error) error {
 		feeder := newFeederCtx[T](context.Background(), 1)
 
@@ -127,7 +126,7 @@ func newFeederCtx[T any](parent context.Context, numErrWriters int) *feederHandl
 }
 
 // feed the pipe
-func (feeder *feederHandle[T]) run(p *Handle[T]) {
+func (feeder *feederHandle[T]) run(p *H[T]) {
 	defer func() {
 		close(feeder.queue)
 		feeder.done()
@@ -155,7 +154,7 @@ func (feeder *feederHandle[T]) done() {
 }
 
 // Batch creates a new pump that yields its data in batches of the given size.
-func Batch[T any](p *Handle[T], size int) *Handle[[]T] {
+func Batch[T any](p *H[T], size int) *H[[]T] {
 	if size < 2 || size > 1_000_000_000 {
 		panic("pump.Batch: invalid batch size: " + strconv.Itoa(size))
 	}
@@ -181,7 +180,7 @@ func Batch[T any](p *Handle[T], size int) *Handle[[]T] {
 }
 
 // Map creates a new pump that converts data from the original pump via the given function.
-func Map[T, U any](p *Handle[T], conv func(T) U) *Handle[U] {
+func Map[T, U any](p *H[T], conv func(T) U) *H[U] {
 	return New(func(yield func(U) error) error {
 		return p.Run(func(item T) error {
 			return yield(conv(item))
@@ -191,7 +190,7 @@ func Map[T, U any](p *Handle[T], conv func(T) U) *Handle[U] {
 
 // PMap does the same as pump.Map, but the conversion function is executed in parallel
 // using `n` goroutines.
-func PMap[T, U any](p *Handle[T], n int, conv func(T) U) *Handle[U] {
+func PMap[T, U any](p *H[T], n int, conv func(T) U) *H[U] {
 	if n < 1 || n > 10_000 {
 		panic("pump.PMap: invalid number of threads: " + strconv.Itoa(n))
 	}
@@ -230,7 +229,7 @@ func PMap[T, U any](p *Handle[T], n int, conv func(T) U) *Handle[U] {
 }
 
 // MapE is the same as pump.Map, but the mapping function may also return an error.
-func MapE[T, U any](p *Handle[T], conv func(T) (U, error)) *Handle[U] {
+func MapE[T, U any](p *H[T], conv func(T) (U, error)) *H[U] {
 	return New(func(yield func(U) error) error {
 		return p.Run(func(item T) (err error) {
 			var v U
@@ -245,7 +244,7 @@ func MapE[T, U any](p *Handle[T], conv func(T) (U, error)) *Handle[U] {
 }
 
 // PMapE does the same as pump.PMap, but the mapping function may also return an error.
-func PMapE[T, U any](p *Handle[T], n int, conv func(T) (U, error)) *Handle[U] {
+func PMapE[T, U any](p *H[T], n int, conv func(T) (U, error)) *H[U] {
 	if n < 1 || n > 10_000 {
 		panic("pump.PMapE: invalid number of threads: " + strconv.Itoa(n))
 	}
@@ -294,7 +293,7 @@ func PMapE[T, U any](p *Handle[T], n int, conv func(T) (U, error)) *Handle[U] {
 }
 
 // Chain creates a new pump that invokes the given pumps one by one, from left to right.
-func Chain[T any](args ...*Handle[T]) *Handle[T] {
+func Chain[T any](args ...*H[T]) *H[T] {
 	switch len(args) {
 	case 0:
 		panic("pump.Chain: no pumps to compose")
