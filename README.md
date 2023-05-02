@@ -74,4 +74,3 @@ For more details on each function see [documentation](https://godoc.org/github.c
 
 #### Project status
 Tested on Linux Mint 21.1, requires Go version 1.19 or higher.
-

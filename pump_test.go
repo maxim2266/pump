@@ -11,7 +11,7 @@ import (
 func TestPipelinedPump(t *testing.T) {
 	const N = 1_000_000
 
-	count, err := runCountingPump(Pipe(countingPump(N, nil)))
+	count, err := run(Pipe(gen(N)))
 
 	if err != nil {
 		t.Error(err)
@@ -29,7 +29,7 @@ func TestPipelinedPumpError(t *testing.T) {
 
 	count := 0
 
-	err := Pipe(countingPump(N, nil)).Run(func(i int) error {
+	err := Pipe(gen(N)).Run(func(i int) error {
 		if count >= N/2 {
 			return fmt.Errorf("unexpected call with value %d", i)
 		}
@@ -67,7 +67,7 @@ func TestPipelinedPumpSourceError(t *testing.T) {
 		MSG = "XXX"
 	)
 
-	count, err := runCountingPump(Pipe(countingPump(N, errors.New(MSG))))
+	count, err := run(Pipe(genWithErr(N, errors.New(MSG))))
 
 	if err == nil {
 		t.Error("missing expected error")
@@ -88,7 +88,7 @@ func TestPipelinedPumpSourceError(t *testing.T) {
 func TestFilteredPump(t *testing.T) {
 	const N = 1000
 
-	p := Filter(countingPump(N, nil), func(v int) bool { return v&1 == 1 })
+	p := Filter(gen(N), func(v int) bool { return v&1 == 1 })
 	count := 0
 
 	err := p.Run(func(v int) error {
@@ -112,7 +112,7 @@ func TestFilteredPump(t *testing.T) {
 }
 
 func TestDoubleRun(t *testing.T) {
-	p := countingPump(100, nil)
+	p := gen(100)
 
 	if err := p.Run(func(_ int) error { return nil }); err != nil {
 		t.Error(err)
@@ -135,9 +135,9 @@ func TestDoubleRun(t *testing.T) {
 func TestMap(t *testing.T) {
 	const N = 100
 
-	p := MapE(Map(countingPump(N, nil), strconv.Itoa), strconv.Atoi)
+	p := MapE(Map(gen(N), strconv.Itoa), strconv.Atoi)
 
-	count, err := runCountingPump(p)
+	count, err := run(p)
 
 	if err != nil {
 		t.Error(err)
@@ -153,7 +153,7 @@ func TestMap(t *testing.T) {
 func TestPMap(t *testing.T) {
 	const N = 10_000
 
-	p := PMapE(PMap(countingPump(N, nil), 4, strconv.Itoa), 4, strconv.Atoi)
+	p := PMapE(PMap(gen(N), 4, strconv.Itoa), 4, strconv.Atoi)
 	res := make([]int, 0, N)
 
 	err := p.Run(func(v int) error {
@@ -185,7 +185,7 @@ func TestPMapSourceError(t *testing.T) {
 	const N = 100
 	const MSG = "XXX"
 
-	p := PMapE(PMap(countingPump(N, errors.New(MSG)), 4, strconv.Itoa), 4, strconv.Atoi)
+	p := PMapE(PMap(genWithErr(N, errors.New(MSG)), 4, strconv.Itoa), 4, strconv.Atoi)
 
 	var count int
 
@@ -208,7 +208,7 @@ func TestPMapDestError(t *testing.T) {
 	const N = 1000
 	const MSG = "XXX"
 
-	p := PMapE(PMap(countingPump(N, nil), 4, strconv.Itoa), 4, strconv.Atoi)
+	p := PMapE(PMap(gen(N), 4, strconv.Itoa), 4, strconv.Atoi)
 
 	var count int
 
@@ -239,7 +239,7 @@ func TestPMapConvError(t *testing.T) {
 
 	var count int
 
-	p := PMapE(PMap(countingPump(N, nil), 4, strconv.Itoa), 4, func(s string) (int, error) {
+	p := PMapE(PMap(gen(N), 4, strconv.Itoa), 4, func(s string) (int, error) {
 		if count++; count == 100 {
 			return 0, errors.New(MSG)
 		}
@@ -267,9 +267,9 @@ func TestPMapConvError(t *testing.T) {
 func TestChain(t *testing.T) {
 	const N = 100
 
-	p := Chain(countingPump(N, nil), Map(countingPump(N, nil), func(v int) int { return v + N }))
+	p := Chain(gen(N), Map(gen(N), func(v int) int { return v + N }))
 
-	count, err := runCountingPump(p)
+	count, err := run(p)
 
 	if err != nil {
 		t.Error(err)
@@ -285,9 +285,9 @@ func TestChain(t *testing.T) {
 func TestLetWhile(t *testing.T) {
 	const N = 100
 
-	p := While(countingPump(N, nil), func(v int) bool { return v < N/2 })
+	p := While(gen(N), func(v int) bool { return v < N/2 })
 
-	count, err := runCountingPump(p)
+	count, err := run(p)
 
 	if err != nil {
 		t.Error(err)
@@ -306,7 +306,7 @@ func TestBatch(t *testing.T) {
 		M = 9
 	)
 
-	p := Batch(countingPump(N, nil), M)
+	p := Batch(gen(N), M)
 	count, batches := 0, 0
 
 	err := p.Run(func(a []int) error {
@@ -344,7 +344,7 @@ func TestBatch(t *testing.T) {
 	}
 }
 
-func runCountingPump(p *Handle[int]) (count int, err error) {
+func run(p *Handle[int]) (count int, err error) {
 	err = p.Run(func(v int) error {
 		if v != count {
 			return fmt.Errorf("unexpected parameter: %d instead of %d", v, count)
@@ -357,10 +357,14 @@ func runCountingPump(p *Handle[int]) (count int, err error) {
 	return
 }
 
-func countingPump(N int, err error) *Handle[int] {
-	return New(func(fn func(int) error) error {
+func gen(N int) *Handle[int] {
+	return genWithErr(N, nil)
+}
+
+func genWithErr(N int, err error) *Handle[int] {
+	return New(func(yield func(int) error) error {
 		for i := 0; i < N; i++ {
-			if e := fn(i); e != nil {
+			if e := yield(i); e != nil {
 				return e
 			}
 		}
