@@ -35,7 +35,7 @@ stopping at the first error encountered, which in turn may either come from the 
 itself, or from the user callback. In practice, many pumps involve some kind of I/O, hence the
 `error` return type in the signature. It is assumed that every such pump may be called no more
 than once, so the framework actually wraps up the iterator function in an object of type
-`pump.H` (a pipe handle) that enforces the single invocation property.
+`pump.H` (a pump handle) that enforces the single invocation property.
 
 The framework makes a clear distinction between constructing a pump and invoking it. Given a
 pump handle, it can be invoked using its `Run` method, all the other functions only
