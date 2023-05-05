@@ -35,10 +35,10 @@ stopping at the first error encountered, which in turn may either come from the 
 itself, or from the user callback. In practice, many pumps involve some kind of I/O, hence the
 `error` return type in the signature. It is assumed that every such pump may be called no more
 than once, so the framework actually wraps up the iterator function in an object of type
-`pump.H` (a pump handle) that enforces the single invocation property.
+`pump.P` that enforces the single invocation property.
 
 The framework makes a clear distinction between constructing a pump and invoking it. Given a
-pump handle, it can be invoked using its `Run` method, all the other functions only
+pump object, it can be invoked using its `Run` method, all the other functions only
 create new pumps from the existing ones:
 * `Filter` creates a pump that filters its source through the given predicate.
 * `While` creates a pump that takes items from its source only while the given predicate is `true`.
@@ -55,7 +55,7 @@ of the above signature, but the user is still responsible for developing such it
 To give an idea of how a pump can be created, here is a constructor of a pump iterating over
 the given slice:
 ```Go
-func SlicePump[T any](list []T) *pump.H[T] {
+func SlicePump[T any](list []T) *pump.P[T] {
     return pump.New(func(yield func(T) error) error {
         for _, item := range list {
             if err := yield(item); err != nil {

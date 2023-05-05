@@ -344,7 +344,7 @@ func TestBatch(t *testing.T) {
 	}
 }
 
-func run(p *H[int]) (count int, err error) {
+func run(p *P[int]) (count int, err error) {
 	err = p.Run(func(v int) error {
 		if v != count {
 			return fmt.Errorf("unexpected parameter: %d instead of %d", v, count)
@@ -357,11 +357,11 @@ func run(p *H[int]) (count int, err error) {
 	return
 }
 
-func gen(N int) *H[int] {
+func gen(N int) *P[int] {
 	return genWithErr(N, nil)
 }
 
-func genWithErr(N int, err error) *H[int] {
+func genWithErr(N int, err error) *P[int] {
 	return New(func(yield func(int) error) error {
 		for i := 0; i < N; i++ {
 			if e := yield(i); e != nil {
