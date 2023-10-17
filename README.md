@@ -1,4 +1,4 @@
-# pump: a minimalist framework for assembling data processing pipelines.
+## pump: a minimalist framework for assembling data processing pipelines.
 
 [![GoDoc](https://godoc.org/github.com/maxim2266/pump?status.svg)](https://godoc.org/github.com/maxim2266/pump)
 [![Go Report Card](https://goreportcard.com/badge/github.com/maxim2266/pump)](https://goreportcard.com/report/github.com/maxim2266/pump)
