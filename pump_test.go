@@ -65,7 +65,7 @@ func fromSlice[T any](src []T) G[T] {
 }
 
 func Example() {
-	// generator constructor (in practice may be a stand-alone function)
+	// generator constructor
 	fromArgs := func(args ...string) G[string] {
 		return func(yield func(string) error) (err error) {
 			for _, s := range args {
@@ -86,8 +86,8 @@ func Example() {
 	)
 
 	// run the pipeline
-	err := pipe(fromArgs(" 123 ", " 321 ", " "), func(x int) (err error) {
-		_, err = fmt.Println(x)
+	err := pipe(fromArgs(" 123 ", " 321 ", " "), func(x int) (e error) {
+		_, e = fmt.Println(x)
 		return
 	})
 
