@@ -29,7 +29,7 @@ func TestMap(t *testing.T) {
 		Filter(func(s string) bool { return len(s) > 0 }),
 		MapE(strconv.Atoi),
 		Map(func(x int) int { return 2 * x }),
-		Map(func(x int) int { return x + 1 }),
+		increment,
 	)
 
 	err := pipe(fromSlice(data[:]), func(x int) error {
@@ -62,6 +62,12 @@ func fromSlice[T any](src []T) G[T] {
 
 		return
 	}
+}
+
+func increment(src G[int], yield func(int) error) error {
+	return src(func(x int) error {
+		return yield(x + 1)
+	})
 }
 
 func Example() {
