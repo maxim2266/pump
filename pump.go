@@ -99,29 +99,5 @@ func MapE[T, U any](fn func(T) (U, error)) S[T, U] {
 	}
 }
 
-// Chain2 composes 2 pipeline stages into one.
-func Chain2[T, U, V any](s1 S[T, U], s2 S[U, V]) S[T, V] {
-	return func(src G[T], yield func(V) error) error {
-		return s2(Bind(src, s1), yield)
-	}
-}
-
-// Chain3 composes 3 pipeline stages into one.
-func Chain3[T, U, V, W any](s1 S[T, U], s2 S[U, V], s3 S[V, W]) S[T, W] {
-	return Chain2(Chain2(s1, s2), s3)
-}
-
-// Chain4 composes 4 pipeline stages into one.
-func Chain4[T, U, V, W, X any](s1 S[T, U], s2 S[U, V], s3 S[V, W], s4 S[W, X]) S[T, X] {
-	return Chain2(Chain3(s1, s2, s3), s4)
-}
-
-// Chain5 composes 5 pipeline stages into one.
-func Chain5[T, U, V, W, X, Y any](s1 S[T, U], s2 S[U, V], s3 S[V, W], s4 S[W, X], s5 S[X, Y]) S[T, Y] {
-	return Chain2(Chain4(s1, s2, s3, s4), s5)
-}
-
-// Chain6 composes 6 pipeline stages into one.
-func Chain6[T, U, V, W, X, Y, Z any](s1 S[T, U], s2 S[U, V], s3 S[V, W], s4 S[W, X], s5 S[X, Y], s6 S[Y, Z]) S[T, Z] {
-	return Chain2(Chain5(s1, s2, s3, s4, s5), s6)
-}
+// generate chain functions
+//go:generate ./gen-chains chain.go
