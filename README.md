@@ -8,6 +8,16 @@ Package `pump` provides a minimalist framework for composing data processing pip
 The pipelines are type-safe, impose little overhead, and can be composed either statically,
 or dynamically (for example, as a function of configuration).
 
+The package defines two generic types:
+
+  - Data generator `G[T]`: a callback-based ("push") iterator that supplies a stream of data of
+    any type `T`, and
+  - Pipeline stage `S[T,U]`: a function that invokes input generator `G[T]`, does whatever processing
+    it is programmed to do, and feeds the supplied callback with data items of type `U`.
+
+The package also provides a basic set of functions for composing pipeline stages and binding stages
+to generators.
+
 For more details see [documentation](https://godoc.org/github.com/maxim2266/pump).
 
 #### Project status
