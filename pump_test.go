@@ -141,6 +141,45 @@ func runConvPipe(src G[string], pipe S[string, int]) error {
 	})
 }
 
+func BenchmarkPipe(b *testing.B) {
+	buff := make([]int, b.N)
+
+	for i := range buff {
+		buff[i] = i & 1
+	}
+
+	src := func(yield func(int) error) error {
+		for _, x := range buff {
+			if err := yield(x); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	sum := 0
+
+	b.StartTimer()
+
+	err := Pipe(src, func(x int) error {
+		sum += x
+		return nil
+	})
+
+	b.StopTimer()
+
+	if err != nil {
+		b.Error(err)
+		return
+	}
+
+	if sum != b.N/2 {
+		b.Errorf("unexpected sum: %d instead of %d", sum, b.N/2)
+		return
+	}
+}
+
 func Example() {
 	// generator constructor
 	fromArgs := func(args ...string) G[string] {
