@@ -16,7 +16,7 @@ The package defines two generic types:
     it is programmed to do, and feeds the supplied callback with data items of type `U`.
 
 The package also provides a basic set of functions for composing pipeline stages and binding stages
-to generators.
+to generators, as well as a stage that runs its generator in a separate goroutine.
 
 For more details see [documentation](https://godoc.org/github.com/maxim2266/pump).
 

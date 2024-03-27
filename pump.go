@@ -11,9 +11,14 @@ The package defines two generic types:
     it is programmed to do, and feeds the supplied callback with data items of type U.
 
 The package also provides a basic set of functions for composing pipeline stages and binding stages
-to generators.
+to generators, as well as a stage that runs its generator in a separate goroutine.
 */
 package pump
+
+import (
+	"context"
+	"errors"
+)
 
 /*
 G is a generic push iterator, or a generator. When invoked with a user-provided callback, it
@@ -108,6 +113,53 @@ func MapE[T, U any](fn func(T) (U, error)) S[T, U] {
 		})
 	}
 }
+
+// Pipe is a stage function that runs its source in a separate goroutine
+func Pipe[T any](src G[T], yield func(T) error) error {
+	// context
+	ctx, cancel := context.WithCancelCause(context.Background())
+
+	// channel
+	ch := make(chan T)
+
+	// start feeder thread
+	go func() {
+		defer close(ch)
+
+		err := src(func(item T) error {
+			select {
+			case ch <- item:
+				return nil
+			case <-ctx.Done():
+				return context.Cause(ctx)
+			}
+		})
+
+		if err != nil {
+			cancel(err)
+		}
+	}()
+
+	// stop feeder on panic
+	defer func() {
+		if p := recover(); p != nil {
+			cancel(errors.New("pipe consumer panicked!"))
+			panic(p)
+		}
+	}()
+
+	// read/yield loop
+	for item := range ch {
+		if err := yield(item); err != nil {
+			cancel(err)
+			yield = nop // discard remaining items
+		}
+	}
+
+	return context.Cause(ctx)
+}
+
+func nop[T any](_ T) error { return nil }
 
 // generate chain functions
 //go:generate ./gen-chains chain.go

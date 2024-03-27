@@ -23,12 +23,13 @@ func TestMap(t *testing.T) {
 	takeIn := func(tc testCase) string { return tc.in }
 
 	i := 0
-	pipe := Chain6(
+	pipe := Chain7(
 		Map(takeIn),
 		Map(strings.TrimSpace),
 		Filter(func(s string) bool { return len(s) > 0 }),
 		MapE(strconv.Atoi),
 		Map(func(x int) int { return 2 * x }),
+		Pipe,
 		increment,
 	)
 
@@ -52,6 +53,51 @@ func TestMap(t *testing.T) {
 	}
 }
 
+func TestPipe(t *testing.T) {
+	// pipe, then convert
+	pipe := Chain2(
+		Pipe,
+		MapE(strconv.Atoi),
+	)
+
+	err := runConvPipe(fromArgs("0", "1", "2", "3"), pipe)
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = runConvPipe(fromArgs("0", "1", "?", "3"), pipe)
+
+	if err == nil {
+		t.Error("missing error")
+		return
+	}
+
+	if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
+		t.Errorf("unexpected error: %s", err)
+		return
+	}
+
+	// convert, then pipe
+	pipe = Chain2(
+		MapE(strconv.Atoi),
+		Pipe,
+	)
+
+	err = runConvPipe(fromArgs("0", "1", "?", "3"), pipe)
+
+	if err == nil {
+		t.Error("missing error")
+		return
+	}
+
+	if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
+		t.Errorf("unexpected error: %s", err)
+		return
+	}
+}
+
 func fromSlice[T any](src []T) G[T] {
 	return func(yield func(T) error) (err error) {
 		for _, s := range src {
@@ -64,9 +110,34 @@ func fromSlice[T any](src []T) G[T] {
 	}
 }
 
+func fromArgs(args ...string) G[string] {
+	return func(yield func(string) error) (err error) {
+		for _, s := range args {
+			if err = yield(s); err != nil {
+				break
+			}
+		}
+
+		return
+	}
+}
+
 func increment(src G[int], yield func(int) error) error {
 	return src(func(x int) error {
 		return yield(x + 1)
+	})
+}
+
+func runConvPipe(src G[string], pipe S[string, int]) error {
+	i := 0
+
+	return pipe(src, func(x int) error {
+		if x != i {
+			return fmt.Errorf("unexpected value: %d instead of %d", x, i)
+		}
+
+		i++
+		return nil
 	})
 }
 
@@ -85,14 +156,15 @@ func Example() {
 	}
 
 	// pipeline (may also be composed statically, or as a function of configuration)
-	pipe := Chain3(
+	pipe := Chain4(
 		Map(strings.TrimSpace),
 		Filter(func(s string) bool { return len(s) > 0 }),
 		MapE(strconv.Atoi),
+		Pipe,
 	)
 
 	// run the pipeline
-	err := pipe(fromArgs(" 123 ", " 321 ", " "), func(x int) (e error) {
+	err := pipe(fromArgs(" 123 ", " 321 ", " ", "-42"), func(x int) (e error) {
 		_, e = fmt.Println(x)
 		return
 	})
@@ -104,4 +176,5 @@ func Example() {
 	// Output:
 	// 123
 	// 321
+	// -42
 }
