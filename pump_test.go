@@ -98,6 +98,43 @@ func TestPipe(t *testing.T) {
 	}
 }
 
+func TestBatch(t *testing.T) {
+	const N = 3
+
+	src := []int{0, 1, 2, 3, 4, 5, 6, 7}
+	pipe := Batch[int](N, true)
+
+	for n := 1; n < len(src); n++ {
+		i := 0
+
+		err := pipe(fromSlice(src[:n]), func(b []int) error {
+			if len(b) > N || len(b) == 0 {
+				return fmt.Errorf("unexpected batch size: %d instead of %d", len(b), N)
+			}
+
+			for _, x := range b {
+				if x != i {
+					return fmt.Errorf("unexpected value: %d instead of %d", x, i)
+				}
+
+				i++
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			t.Error(err)
+			return
+		}
+
+		if i != n {
+			t.Errorf("unexpected number of iterations: %d instead of %d", i, n)
+			return
+		}
+	}
+}
+
 func fromSlice[T any](src []T) G[T] {
 	return func(yield func(T) error) (err error) {
 		for _, s := range src {
@@ -160,7 +197,7 @@ func BenchmarkPipe(b *testing.B) {
 
 	sum := 0
 
-	b.StartTimer()
+	b.ResetTimer()
 
 	err := Pipe(src, func(x int) error {
 		sum += x

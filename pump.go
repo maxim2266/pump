@@ -18,6 +18,7 @@ package pump
 import (
 	"context"
 	"errors"
+	"strconv"
 )
 
 /*
@@ -160,6 +161,45 @@ func Pipe[T any](src G[T], yield func(T) error) error {
 }
 
 func nop[T any](_ T) error { return nil }
+
+// Batch constructs a stage function that collects its generator output into batches
+// of n items each. The flag "reuse" indicates if the batch buffer can be reused after
+// each iteration.
+func Batch[T any](n int, reuse bool) S[T, []T] {
+	// parameter check (a realistic value is expected)
+	if n <= 0 || n > 64*1024*1024 {
+		panic("batch constructor: invalid size " + strconv.Itoa(n))
+	}
+
+	// batch allocator
+	var next func([]T) []T
+
+	if reuse {
+		next = func(b []T) []T { return b[:0] }
+	} else {
+		next = func(_ []T) []T { return make([]T, 0, n) }
+	}
+
+	// stage function
+	return func(src G[T], yield func([]T) error) error {
+		batch := make([]T, 0, n)
+
+		err := src(func(item T) (e error) {
+			if batch = append(batch, item); len(batch) == n {
+				e = yield(batch)
+				batch = next(batch)
+			}
+
+			return
+		})
+
+		if err == nil && len(batch) > 0 {
+			err = yield(batch)
+		}
+
+		return err
+	}
+}
 
 // generate chain functions
 //go:generate ./gen-chains chain.go
