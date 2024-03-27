@@ -21,4 +21,4 @@ to generators, as well as a stage that runs its generator in a separate goroutin
 For more details see [documentation](https://godoc.org/github.com/maxim2266/pump).
 
 #### Project status
-Tested on Linux Mint 21.2, requires Go version 1.19 or higher.
+Tested on Linux Mint versions from 21.x range, requires Go version 1.21 or higher.
