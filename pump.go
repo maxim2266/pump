@@ -120,8 +120,16 @@ func Pipe[T any](src G[T], yield func(T) error) error {
 	// context
 	ctx, cancel := context.WithCancelCause(context.Background())
 
+	// cancel context on panic
+	defer func() {
+		if p := recover(); p != nil {
+			cancel(errors.New("pipe consumer panicked!"))
+			panic(p)
+		}
+	}()
+
 	// channel
-	ch := make(chan T)
+	ch := make(chan T, 32)
 
 	// start feeder thread
 	go func() {
@@ -138,14 +146,6 @@ func Pipe[T any](src G[T], yield func(T) error) error {
 
 		if err != nil {
 			cancel(err)
-		}
-	}()
-
-	// stop feeder on panic
-	defer func() {
-		if p := recover(); p != nil {
-			cancel(errors.New("pipe consumer panicked!"))
-			panic(p)
 		}
 	}()
 
