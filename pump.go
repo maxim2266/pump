@@ -117,8 +117,14 @@ func MapE[T, U any](fn func(T) (U, error)) S[T, U] {
 
 // Pipe is a stage function that runs its source in a separate goroutine
 func Pipe[T any](src G[T], yield func(T) error) error {
+	return PipeCtx(context.Background(), src, yield)
+}
+
+// PipeCtx is a stage function that runs its source in a separate goroutine. The background
+// goroutine is controled by the given context.
+func PipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
 	// context
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(ctx)
 
 	// cancel context on panic
 	defer func() {
