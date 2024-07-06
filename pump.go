@@ -20,6 +20,9 @@ import (
 	"errors"
 )
 
+// generate chain functions
+//go:generate ./gen-chains chain.go
+
 /*
 G is a generic push iterator, or a generator. When invoked with a user-provided callback, it
 is expected to iterate its data source invoking the callback once per each data item. It is also
@@ -132,12 +135,14 @@ func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
 	// context
 	ctx, cancel := context.WithCancelCause(ctx)
 
-	// cancel context on panic
+	// cancel the context upon completion
 	defer func() {
 		if p := recover(); p != nil {
-			cancel(errors.New("pipe consumer panicked!"))
+			cancel(panicErr)
 			panic(p)
 		}
+
+		cancel(nil)
 	}()
 
 	// channel
@@ -152,7 +157,7 @@ func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
 			case ch <- item:
 				return nil
 			case <-ctx.Done():
-				return context.Cause(ctx)
+				return stopErr
 			}
 		})
 
@@ -165,14 +170,19 @@ func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
 	for item := range ch {
 		if err := yield(item); err != nil {
 			cancel(err)
-			yield = nop // discard remaining items
+			break
 		}
 	}
 
+	// drain the channel until feeder terminates
+	for _ = range ch {
+	}
+
+	// all done
 	return context.Cause(ctx)
 }
 
-func nop[T any](_ T) error { return nil }
-
-// generate chain functions
-//go:generate ./gen-chains chain.go
+var (
+	panicErr = errors.New("pipe consumer panicked!")
+	stopErr  = errors.New("pipe feeder cancelled")
+)
