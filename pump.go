@@ -18,6 +18,9 @@ package pump
 import (
 	"context"
 	"errors"
+	"runtime"
+	"sync"
+	"sync/atomic"
 )
 
 // generate chain functions
@@ -130,7 +133,10 @@ func PipeCtx[T any](ctx context.Context) S[T, T] {
 	}
 }
 
-// implementation of the pipe stage
+// capacity of the channel between pipe stages
+const chanCap = 32
+
+// pipe implementation
 func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
 	// context
 	ctx, cancel := context.WithCancelCause(ctx)
@@ -145,44 +151,173 @@ func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
 		cancel(nil)
 	}()
 
-	// channel
-	ch := make(chan T, 32)
+	// wait group
+	var wg sync.WaitGroup
 
-	// start feeder thread
-	go func() {
-		defer close(ch)
+	wg.Add(1)
 
-		err := src(func(item T) error {
-			select {
-			case ch <- item:
-				return nil
-			case <-ctx.Done():
-				return stopErr
-			}
-		})
+	// run
+	readChan(startFeeder(ctx, cancel, &wg, src), cancel, yield)
 
-		if err != nil {
-			cancel(err)
+	// wait for all threads to terminate
+	wg.Wait()
+
+	// all done
+	return context.Cause(ctx)
+}
+
+// Parallel constructs a stage function that invokes the given stage from n
+// goroutines in parallel. The value of n has the upper bound of 100 * runtime.NumCPU().
+// Zero value of n corresponds to runtime.NumCPU().
+func Parallel[T, U any](n int, stage S[T, U]) S[T, U] {
+	return ParallelCtx(context.Background(), n, stage)
+}
+
+// Parallel constructs a stage function that invokes the given stage from n
+// goroutines in parallel, under control of the given context. The value of n has
+// the upper bound of 100 * runtime.NumCPU(). Zero value of n corresponds to runtime.NumCPU().
+func ParallelCtx[T, U any](ctx context.Context, n int, stage S[T, U]) S[T, U] {
+	// ensure realistic value for n
+	np := runtime.NumCPU()
+
+	if n <= 0 {
+		n = np
+	} else {
+		n = min(n, np*100)
+	}
+
+	// the stage
+	return func(src G[T], yield func(U) error) error {
+		return parallelCtx(ctx, n, src, stage, yield)
+	}
+}
+
+// implementation of parallel stage
+func parallelCtx[T, U any](
+	ctx context.Context,
+	n int,
+	src G[T],
+	stage S[T, U],
+	yield func(U) error,
+) error {
+	// context
+	ctx, cancel := context.WithCancelCause(ctx)
+
+	// cancel the context upon completion
+	defer func() {
+		if p := recover(); p != nil {
+			cancel(panicErr)
+			panic(p)
 		}
+
+		cancel(nil)
 	}()
 
-	// read/yield loop
+	// wait group
+	var wg sync.WaitGroup
+
+	wg.Add(n + 1)
+
+	// feeder generator
+	gen := genFromChan(startFeeder(ctx, cancel, &wg, src))
+
+	// collector channel
+	collector := make(chan U, chanCap)
+
+	// collector sink
+	sink := toChan(ctx, collector)
+
+	// start workers
+	refCount := int32(n)
+
+	for i := 0; i < n; i++ {
+		go func() {
+			defer func() {
+				if atomic.AddInt32(&refCount, -1) == 0 {
+					close(collector)
+				}
+
+				wg.Done()
+			}()
+
+			if err := stage(gen, sink); err != nil {
+				cancel(err)
+			}
+		}()
+	}
+
+	// run
+	readChan(collector, cancel, yield)
+
+	// wait for all threads to terminate
+	wg.Wait()
+
+	// all done
+	return context.Cause(ctx)
+}
+
+// channel generator constructor
+func genFromChan[T any](ch <-chan T) G[T] {
+	return func(yield func(T) error) (err error) {
+		for item := range ch {
+			if err = yield(item); err != nil {
+				break
+			}
+		}
+
+		return
+	}
+}
+
+// construct function that yields to the channel
+func toChan[T any](ctx context.Context, ch chan<- T) func(T) error {
+	return func(item T) error {
+		select {
+		case ch <- item:
+			return nil
+		case <-ctx.Done():
+			return stopErr
+		}
+	}
+}
+
+// yield from the channel
+func readChan[T any](ch <-chan T, cancel context.CancelCauseFunc, yield func(T) error) {
 	for item := range ch {
 		if err := yield(item); err != nil {
 			cancel(err)
 			break
 		}
 	}
+}
 
-	// drain the channel until feeder terminates
-	for _ = range ch {
-	}
+// start feeder thread
+func startFeeder[T any](
+	ctx context.Context,
+	cancel context.CancelCauseFunc,
+	wg *sync.WaitGroup,
+	src G[T],
+) chan T {
+	// feeder channel
+	feeder := make(chan T, chanCap)
 
-	// all done
-	return context.Cause(ctx)
+	// start feeder thread
+	go func() {
+		defer func() {
+			close(feeder)
+			wg.Done()
+		}()
+
+		if err := src(toChan(ctx, feeder)); err != nil {
+			cancel(err)
+		}
+	}()
+
+	return feeder
 }
 
 var (
+	// predefined errors
 	panicErr = errors.New("pipe consumer panicked!")
 	stopErr  = errors.New("pipe feeder cancelled")
 )

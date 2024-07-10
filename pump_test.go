@@ -3,6 +3,7 @@ package pump
 import (
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -86,6 +87,67 @@ func TestPipe(t *testing.T) {
 	)
 
 	err = runConvPipe(fromArgs("0", "1", "?", "3"), pipe)
+
+	if err == nil {
+		t.Error("missing error")
+		return
+	}
+
+	if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
+		t.Errorf("unexpected error: %s", err)
+		return
+	}
+}
+
+func TestParallel(t *testing.T) {
+	const N = 10000
+
+	src := func(yield func(int) error) (err error) {
+		for i := 0; i < N; i++ {
+			if err = yield(i); err != nil {
+				break
+			}
+		}
+
+		return
+	}
+
+	res := make([]int, 0, N/2)
+
+	pipe := Parallel(0, Chain3(
+		Map(strconv.Itoa),
+		MapE(strconv.Atoi),
+		Filter(func(x int) bool { return x&1 == 0 }),
+	))
+
+	err := pipe(src, func(x int) error {
+		res = append(res, x)
+		return nil
+	})
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if len(res) != N/2 {
+		t.Errorf("unexpected result length: %d instead of %d", len(res), N/2)
+		return
+	}
+
+	sort.Ints(res)
+
+	for i := 0; i < len(res); i++ {
+		if res[i] != 2*i {
+			t.Errorf("[%d] unexpected value: %d instead of %d", i, res[i], 2*i)
+			return
+		}
+	}
+}
+
+func TestParallelErr(t *testing.T) {
+	pipe := Parallel(0, MapE(strconv.Atoi))
+	err := pipe(fromArgs("0", "1", "2", "?", "4"), func(x int) error { return nil })
 
 	if err == nil {
 		t.Error("missing error")
