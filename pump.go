@@ -144,7 +144,7 @@ func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
 	// cancel the context upon completion
 	defer func() {
 		if p := recover(); p != nil {
-			cancel(panicErr)
+			cancel(errPanic)
 			panic(p)
 		}
 
@@ -206,7 +206,7 @@ func parallelCtx[T, U any](
 	// cancel the context upon completion
 	defer func() {
 		if p := recover(); p != nil {
-			cancel(panicErr)
+			cancel(errPanic)
 			panic(p)
 		}
 
@@ -276,7 +276,7 @@ func toChan[T any](ctx context.Context, ch chan<- T) func(T) error {
 		case ch <- item:
 			return nil
 		case <-ctx.Done():
-			return stopErr
+			return errStop
 		}
 	}
 }
@@ -318,6 +318,6 @@ func startFeeder[T any](
 
 var (
 	// predefined errors
-	panicErr = errors.New("pipe consumer panicked!")
-	stopErr  = errors.New("pipe feeder cancelled")
+	errPanic = errors.New("pipe consumer panicked")
+	errStop  = errors.New("pipe feeder cancelled")
 )
