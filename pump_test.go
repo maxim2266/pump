@@ -3,6 +3,7 @@ package pump
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
@@ -146,17 +147,32 @@ func TestParallel(t *testing.T) {
 }
 
 func TestParallelErr(t *testing.T) {
-	pipe := Parallel(0, MapE(strconv.Atoi))
-	err := pipe(fromArgs("0", "1", "2", "?", "4"), func(x int) error { return nil })
+	const N = 1000
 
-	if err == nil {
-		t.Error("missing error")
-		return
+	data := make([]string, N)
+
+	for i := 0; i < N; i++ {
+		data[i] = strconv.Itoa(i)
 	}
 
-	if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
-		t.Errorf("unexpected error: %s", err)
-		return
+	pipe := Parallel(0, MapE(strconv.Atoi))
+
+	for n, errInd := 0, rand.Int()%N; n < 100; n, errInd = n+1, rand.Int()%N {
+		data[errInd] = "?"
+
+		err := pipe(fromSlice(data), func(x int) error { return nil })
+
+		if err == nil {
+			t.Errorf("[%d] missing error", errInd)
+			return
+		}
+
+		if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
+			t.Errorf("[%d] unexpected error: %s", errInd, err)
+			return
+		}
+
+		data[errInd] = strconv.Itoa(errInd)
 	}
 }
 
