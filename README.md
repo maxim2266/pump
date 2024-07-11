@@ -6,7 +6,8 @@
 
 Package `pump` provides a minimalist framework for composing data processing pipelines.
 The pipelines are type-safe, impose little overhead, and can be composed either statically,
-or dynamically (for example, as a function of configuration).
+or dynamically (for example, as a function of configuration). A running pipeline stops on and
+returns the first error encountered.
 
 The package defines two generic types:
 

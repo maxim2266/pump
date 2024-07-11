@@ -168,14 +168,15 @@ func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
 
 // Parallel constructs a stage function that invokes the given stage from n
 // goroutines in parallel. The value of n has the upper bound of 100 * runtime.NumCPU().
-// Zero value of n corresponds to runtime.NumCPU().
+// Zero or negative value of n corresponds to runtime.NumCPU().
 func Parallel[T, U any](n int, stage S[T, U]) S[T, U] {
 	return ParallelCtx(context.Background(), n, stage)
 }
 
 // Parallel constructs a stage function that invokes the given stage from n
 // goroutines in parallel, under control of the given context. The value of n has
-// the upper bound of 100 * runtime.NumCPU(). Zero value of n corresponds to runtime.NumCPU().
+// the upper bound of 100 * runtime.NumCPU(). Zero or negative value of n corresponds
+// to runtime.NumCPU().
 func ParallelCtx[T, U any](ctx context.Context, n int, stage S[T, U]) S[T, U] {
 	// ensure realistic value for n
 	np := runtime.NumCPU()
@@ -318,6 +319,6 @@ func startFeeder[T any](
 
 var (
 	// predefined errors
-	errPanic = errors.New("pipe consumer panicked")
-	errStop  = errors.New("pipe feeder cancelled")
+	errPanic = errors.New("pipe stage panicked")
+	errStop  = errors.New("pipe stage cancelled")
 )
