@@ -57,16 +57,40 @@ func TestMap(t *testing.T) {
 }
 
 func TestPipe(t *testing.T) {
-	// pipe, then convert
-	pipe := Chain2(
+	const N = 10000
+
+	pipe := Chain3(
+		Map(strconv.Itoa),
 		Pipe,
 		MapE(strconv.Atoi),
 	)
 
-	err := runConvPipe(fromArgs("0", "1", "2", "3"), pipe)
+	var errCopy error
 
-	if err != nil {
+	i := 0
+	err := pipe(genInts(N), func(x int) error {
+		if x != i {
+			errCopy = fmt.Errorf("unexpected value: %d instead of %d", x, i)
+		} else if i >= N {
+			errCopy = fmt.Errorf("excessive input: %d", x)
+		}
+
+		i++
+		return errCopy
+	})
+
+	if err != nil || errCopy != nil {
+		if err != errCopy {
+			t.Errorf("error mismatch:\nset: %s\ngot: %s", errCopy, err)
+			return
+		}
+
 		t.Error(err)
+		return
+	}
+
+	if i != N {
+		t.Errorf("incomplete sequence: %d items instead of %d", i, N)
 		return
 	}
 }
@@ -141,10 +165,10 @@ func fromSlice[T any](src []T) G[T] {
 	}
 }
 
-func fromArgs(args ...string) G[string] {
-	return func(yield func(string) error) (err error) {
-		for _, s := range args {
-			if err = yield(s); err != nil {
+func genInts(n int) G[int] {
+	return func(yield func(int) error) (err error) {
+		for i := 0; i < n; i++ {
+			if err = yield(i); err != nil {
 				break
 			}
 		}
@@ -156,19 +180,6 @@ func fromArgs(args ...string) G[string] {
 func increment(src G[int], yield func(int) error) error {
 	return src(func(x int) error {
 		return yield(x + 1)
-	})
-}
-
-func runConvPipe(src G[string], pipe S[string, int]) error {
-	i := 0
-
-	return pipe(src, func(x int) error {
-		if x != i {
-			return fmt.Errorf("unexpected value: %d instead of %d", x, i)
-		}
-
-		i++
-		return nil
 	})
 }
 
