@@ -254,29 +254,36 @@ func BenchmarkPipe(b *testing.B) {
 }
 
 func Example() {
-	// generator constructor
-	fromArgs := func(args ...string) G[string] {
-		return func(yield func(string) error) (err error) {
-			for _, s := range args {
-				if err = yield(s); err != nil {
-					break
-				}
-			}
+	// input data
+	data := []string{" 123 ", " 321 ", " ", "-42"}
 
-			return
+	// input data generator
+	src := func(yield func(string) error) (err error) {
+		// call "yield" for each string from "data" array
+		for _, s := range data {
+			if err = yield(s); err != nil {
+				break
+			}
 		}
+
+		return
 	}
 
 	// pipeline (may also be composed statically, or as a function of configuration)
 	pipe := Chain4(
+		// trim whitespace
 		Map(strings.TrimSpace),
+		// allow only non-empty strings
 		Filter(func(s string) bool { return len(s) > 0 }),
+		// convert to integer
 		MapE(strconv.Atoi),
+		// run all the above in a separate thread
 		Pipe,
 	)
 
 	// run the pipeline
-	err := pipe(fromArgs(" 123 ", " 321 ", " ", "-42"), func(x int) (e error) {
+	err := pipe(src, func(x int) (e error) {
+		// just print the value
 		_, e = fmt.Println(x)
 		return
 	})
