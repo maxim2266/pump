@@ -106,35 +106,73 @@ func TestPipeErr2(t *testing.T) {
 func TestParallel(t *testing.T) {
 	const N = 10000
 
+	atoi := MapE(strconv.Atoi)
+	itoa := Map(strconv.Itoa)
+	even := Filter(func(x int) bool { return x&1 == 0 })
+
+	pipes := [...]S[int, int]{
+		Chain3(
+			itoa,
+			Parallel(0, atoi),
+			even,
+		),
+
+		Parallel(0,
+			Chain3(
+				itoa,
+				atoi,
+				even,
+			),
+		),
+
+		Chain2(
+			itoa,
+			Parallel(0,
+				Chain2(
+					atoi,
+					even,
+				),
+			),
+		),
+
+		Chain2(
+			Parallel(0,
+				Chain2(
+					itoa,
+					atoi,
+				),
+			),
+			even,
+		),
+	}
+
 	res := make([]int, 0, N/2)
 
-	pipe := Chain3(
-		Map(strconv.Itoa),
-		Parallel(0, MapE(strconv.Atoi)),
-		Filter(func(x int) bool { return x&1 == 0 }),
-	)
+	for no, pipe := range pipes {
+		res = res[:0]
 
-	err := pipe(intRange(N), func(x int) error {
-		res = append(res, x)
-		return nil
-	})
+		err := pipe(intRange(N), func(x int) error {
+			res = append(res, x)
+			return nil
+		})
 
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	if len(res) != N/2 {
-		t.Errorf("unexpected result length: %d instead of %d", len(res), N/2)
-		return
-	}
-
-	sort.Ints(res)
-
-	for i := 0; i < len(res); i++ {
-		if res[i] != 2*i {
-			t.Errorf("[%d] unexpected value: %d instead of %d", i, res[i], 2*i)
+		if err != nil {
+			t.Errorf("[%d] %s", no, err)
 			return
+		}
+
+		if len(res) != N/2 {
+			t.Errorf("[%d] unexpected result length: %d instead of %d", no, len(res), N/2)
+			return
+		}
+
+		sort.Ints(res)
+
+		for i := 0; i < len(res); i++ {
+			if res[i] != 2*i {
+				t.Errorf("[%d] unexpected value at %d: %d instead of %d", no, i, res[i], 2*i)
+				return
+			}
 		}
 	}
 }
