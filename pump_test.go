@@ -1,6 +1,7 @@
 package pump
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -84,7 +85,7 @@ func TestPipe(t *testing.T) {
 	// convert, then pipe
 	pipe = Chain2(
 		MapE(strconv.Atoi),
-		Pipe,
+		PipeCtx[int](context.Background()),
 	)
 
 	err = runConvPipe(fromArgs("0", "1", "?", "3"), pipe)
