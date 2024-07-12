@@ -108,14 +108,14 @@ func Map[T, U any](fn func(T) U) S[T, U] {
 // stopping on the first error encountered, if any.
 func MapE[T, U any](fn func(T) (U, error)) S[T, U] {
 	return func(src G[T], yield func(U) error) error {
-		return src(func(item T) (err error) {
-			var tmp U
+		return src(func(item T) error {
+			tmp, err := fn(item)
 
-			if tmp, err = fn(item); err == nil {
-				err = yield(tmp)
+			if err != nil {
+				return err
 			}
 
-			return
+			return yield(tmp)
 		})
 	}
 }
@@ -138,8 +138,8 @@ const chanCap = 32
 
 // pipe implementation
 func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
-	return execInCtx(ctx, func(env *pipeEnv) {
-		readChan(env, startFeeder(env, src), yield)
+	return execInCtx(ctx, func(env *pipeEnv) error {
+		return readChan(startFeeder(env, src), yield)
 	})
 }
 
@@ -166,20 +166,12 @@ func ParallelCtx[T, U any](ctx context.Context, n int, stage S[T, U]) S[T, U] {
 
 	// the stage
 	return func(src G[T], yield func(U) error) error {
-		return execInCtx(ctx, func(env *pipeEnv) {
+		return execInCtx(ctx, func(env *pipeEnv) error {
 			// feeder channel
 			feeder := startFeeder(env, src)
 
 			// generator from feeder
-			gen := func(fn func(T) error) (err error) {
-				for item := range feeder {
-					if err = fn(item); err != nil {
-						break
-					}
-				}
-
-				return
-			}
+			gen := func(fn func(T) error) error { return readChan(feeder, fn) }
 
 			// collector channel
 			collector := make(chan U, chanCap)
@@ -202,14 +194,12 @@ func ParallelCtx[T, U any](ctx context.Context, n int, stage S[T, U]) S[T, U] {
 						env.wg.Done()
 					}()
 
-					if err := stage(gen, sink); err != nil {
-						env.cancel(err)
-					}
+					env.safe(stage(gen, sink))
 				}()
 			}
 
 			// run
-			readChan(env, collector, yield)
+			return readChan(collector, yield)
 		})
 	}
 }
@@ -221,8 +211,15 @@ type pipeEnv struct {
 	wg     sync.WaitGroup
 }
 
+// error checking
+func (env *pipeEnv) safe(err error) {
+	if err != nil {
+		env.cancel(err)
+	}
+}
+
 // create pipe environment and run the given function in it
-func execInCtx(ctx context.Context, fn func(*pipeEnv)) error {
+func execInCtx(ctx context.Context, fn func(*pipeEnv) error) error {
 	// environment
 	var env pipeEnv
 
@@ -240,7 +237,7 @@ func execInCtx(ctx context.Context, fn func(*pipeEnv)) error {
 	}()
 
 	// run
-	fn(&env)
+	env.safe(fn(&env))
 
 	// wait for all threads to terminate
 	env.wg.Wait()
@@ -263,22 +260,21 @@ func startFeeder[T any](env *pipeEnv, src G[T]) <-chan T {
 			env.wg.Done()
 		}()
 
-		if err := src(toChan(env, feeder)); err != nil {
-			env.cancel(err)
-		}
+		env.safe(src(toChan(env, feeder)))
 	}()
 
 	return feeder
 }
 
 // yield from the channel
-func readChan[T any](env *pipeEnv, ch <-chan T, yield func(T) error) {
+func readChan[T any](ch <-chan T, yield func(T) error) (err error) {
 	for item := range ch {
-		if err := yield(item); err != nil {
-			env.cancel(err)
+		if err = yield(item); err != nil {
 			break
 		}
 	}
+
+	return
 }
 
 // construct function that yields to the channel

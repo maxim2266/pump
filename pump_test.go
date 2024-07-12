@@ -69,36 +69,14 @@ func TestPipe(t *testing.T) {
 		t.Error(err)
 		return
 	}
+}
 
-	err = runConvPipe(fromArgs("0", "1", "?", "3"), pipe)
+func TestPipeErr(t *testing.T) {
+	testPipeErr(t, Chain2(MapE(strconv.Atoi), PipeCtx[int](context.Background())))
+}
 
-	if err == nil {
-		t.Error("missing error")
-		return
-	}
-
-	if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
-		t.Errorf("unexpected error: %s", err)
-		return
-	}
-
-	// convert, then pipe
-	pipe = Chain2(
-		MapE(strconv.Atoi),
-		PipeCtx[int](context.Background()),
-	)
-
-	err = runConvPipe(fromArgs("0", "1", "?", "3"), pipe)
-
-	if err == nil {
-		t.Error("missing error")
-		return
-	}
-
-	if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
-		t.Errorf("unexpected error: %s", err)
-		return
-	}
+func TestPipeErr2(t *testing.T) {
+	testPipeErr(t, Chain2(Pipe, MapE(strconv.Atoi)))
 }
 
 func TestParallel(t *testing.T) {
@@ -148,33 +126,7 @@ func TestParallel(t *testing.T) {
 }
 
 func TestParallelErr(t *testing.T) {
-	const N = 1000
-
-	data := make([]string, N)
-
-	for i := 0; i < N; i++ {
-		data[i] = strconv.Itoa(i)
-	}
-
-	pipe := Parallel(0, MapE(strconv.Atoi))
-
-	for n, errInd := 0, rand.Int()%N; n < 100; n, errInd = n+1, rand.Int()%N {
-		data[errInd] = "?"
-
-		err := pipe(fromSlice(data), func(x int) error { return nil })
-
-		if err == nil {
-			t.Errorf("[%d] missing error", errInd)
-			return
-		}
-
-		if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
-			t.Errorf("[%d] unexpected error: %s", errInd, err)
-			return
-		}
-
-		data[errInd] = strconv.Itoa(errInd)
-	}
+	testPipeErr(t, Parallel(0, MapE(strconv.Atoi)))
 }
 
 func fromSlice[T any](src []T) G[T] {
@@ -218,6 +170,37 @@ func runConvPipe(src G[string], pipe S[string, int]) error {
 		i++
 		return nil
 	})
+}
+
+func testPipeErr(t *testing.T, pipe S[string, int]) {
+	const (
+		N = 1000
+		M = 100
+	)
+
+	data := make([]string, N)
+
+	for i := 0; i < N; i++ {
+		data[i] = strconv.Itoa(i)
+	}
+
+	for n, errInd := 0, rand.Int()%N; n < M; n, errInd = n+1, rand.Int()%N {
+		data[errInd] = "?"
+
+		err := pipe(fromSlice(data), func(x int) error { return nil })
+
+		if err == nil {
+			t.Errorf("[%d] missing error", errInd)
+			return
+		}
+
+		if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
+			t.Errorf("[%d] unexpected error: %s", errInd, err)
+			return
+		}
+
+		data[errInd] = strconv.Itoa(errInd)
+	}
 }
 
 func BenchmarkPipe(b *testing.B) {
