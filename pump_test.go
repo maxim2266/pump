@@ -68,7 +68,7 @@ func TestPipe(t *testing.T) {
 	var errCopy error
 
 	i := 0
-	err := pipe(genInts(N), func(x int) error {
+	err := pipe(intRange(N), func(x int) error {
 		if x != i {
 			errCopy = fmt.Errorf("unexpected value: %d instead of %d", x, i)
 		} else if i >= N {
@@ -106,25 +106,15 @@ func TestPipeErr2(t *testing.T) {
 func TestParallel(t *testing.T) {
 	const N = 10000
 
-	src := func(yield func(int) error) (err error) {
-		for i := 0; i < N; i++ {
-			if err = yield(i); err != nil {
-				break
-			}
-		}
-
-		return
-	}
-
 	res := make([]int, 0, N/2)
 
-	pipe := Parallel(0, Chain3(
+	pipe := Chain3(
 		Map(strconv.Itoa),
-		MapE(strconv.Atoi),
+		Parallel(0, MapE(strconv.Atoi)),
 		Filter(func(x int) bool { return x&1 == 0 }),
-	))
+	)
 
-	err := pipe(src, func(x int) error {
+	err := pipe(intRange(N), func(x int) error {
 		res = append(res, x)
 		return nil
 	})
@@ -165,7 +155,7 @@ func fromSlice[T any](src []T) G[T] {
 	}
 }
 
-func genInts(n int) G[int] {
+func intRange(n int) G[int] {
 	return func(yield func(int) error) (err error) {
 		for i := 0; i < n; i++ {
 			if err = yield(i); err != nil {
