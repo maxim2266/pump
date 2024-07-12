@@ -138,32 +138,9 @@ const chanCap = 32
 
 // pipe implementation
 func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
-	// context
-	ctx, cancel := context.WithCancelCause(ctx)
-
-	// cancel the context upon completion
-	defer func() {
-		if p := recover(); p != nil {
-			cancel(errPanic)
-			panic(p)
-		}
-
-		cancel(nil)
-	}()
-
-	// wait group
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-
-	// run
-	readChan(startFeeder(ctx, cancel, &wg, src), cancel, yield)
-
-	// wait for all threads to terminate
-	wg.Wait()
-
-	// all done
-	return context.Cause(ctx)
+	return execInCtx(ctx, func(env *pipeEnv) {
+		readChan(env, startFeeder(env, src), yield)
+	})
 }
 
 // Parallel constructs a stage function that invokes the given stage from n
@@ -189,132 +166,131 @@ func ParallelCtx[T, U any](ctx context.Context, n int, stage S[T, U]) S[T, U] {
 
 	// the stage
 	return func(src G[T], yield func(U) error) error {
-		return parallelCtx(ctx, n, src, stage, yield)
+		return execInCtx(ctx, func(env *pipeEnv) {
+			// feeder channel
+			feeder := startFeeder(env, src)
+
+			// generator from feeder
+			gen := func(fn func(T) error) (err error) {
+				for item := range feeder {
+					if err = fn(item); err != nil {
+						break
+					}
+				}
+
+				return
+			}
+
+			// collector channel
+			collector := make(chan U, chanCap)
+
+			// collector sink
+			sink := toChan(env, collector)
+
+			// start workers
+			refCount := int32(n)
+
+			env.wg.Add(n)
+
+			for i := 0; i < n; i++ {
+				go func() {
+					defer func() {
+						if atomic.AddInt32(&refCount, -1) == 0 {
+							close(collector)
+						}
+
+						env.wg.Done()
+					}()
+
+					if err := stage(gen, sink); err != nil {
+						env.cancel(err)
+					}
+				}()
+			}
+
+			// run
+			readChan(env, collector, yield)
+		})
 	}
 }
 
-// implementation of parallel stage
-func parallelCtx[T, U any](
-	ctx context.Context,
-	n int,
-	src G[T],
-	stage S[T, U],
-	yield func(U) error,
-) error {
+// synchronisation pack for pipes
+type pipeEnv struct {
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+	wg     sync.WaitGroup
+}
+
+// create pipe environment and run the given function in it
+func execInCtx(ctx context.Context, fn func(*pipeEnv)) error {
+	// environment
+	var env pipeEnv
+
 	// context
-	ctx, cancel := context.WithCancelCause(ctx)
+	env.ctx, env.cancel = context.WithCancelCause(ctx)
 
 	// cancel the context upon completion
 	defer func() {
 		if p := recover(); p != nil {
-			cancel(errPanic)
+			env.cancel(errPanic)
 			panic(p)
 		}
 
-		cancel(nil)
+		env.cancel(nil)
 	}()
 
-	// wait group
-	var wg sync.WaitGroup
-
-	wg.Add(n + 1)
-
-	// feeder generator
-	gen := genFromChan(startFeeder(ctx, cancel, &wg, src))
-
-	// collector channel
-	collector := make(chan U, chanCap)
-
-	// collector sink
-	sink := toChan(ctx, collector)
-
-	// start workers
-	refCount := int32(n)
-
-	for i := 0; i < n; i++ {
-		go func() {
-			defer func() {
-				if atomic.AddInt32(&refCount, -1) == 0 {
-					close(collector)
-				}
-
-				wg.Done()
-			}()
-
-			if err := stage(gen, sink); err != nil {
-				cancel(err)
-			}
-		}()
-	}
-
 	// run
-	readChan(collector, cancel, yield)
+	fn(&env)
 
 	// wait for all threads to terminate
-	wg.Wait()
+	env.wg.Wait()
 
 	// all done
-	return context.Cause(ctx)
+	return context.Cause(env.ctx)
 }
 
-// channel generator constructor
-func genFromChan[T any](ch <-chan T) G[T] {
-	return func(yield func(T) error) (err error) {
-		for item := range ch {
-			if err = yield(item); err != nil {
-				break
-			}
-		}
+// start feeder thread
+func startFeeder[T any](env *pipeEnv, src G[T]) <-chan T {
+	// feeder channel
+	feeder := make(chan T, chanCap)
 
-		return
-	}
-}
+	// start feeder thread
+	env.wg.Add(1)
 
-// construct function that yields to the channel
-func toChan[T any](ctx context.Context, ch chan<- T) func(T) error {
-	return func(item T) error {
-		select {
-		case ch <- item:
-			return nil
-		case <-ctx.Done():
-			return errStop
+	go func() {
+		defer func() {
+			close(feeder)
+			env.wg.Done()
+		}()
+
+		if err := src(toChan(env, feeder)); err != nil {
+			env.cancel(err)
 		}
-	}
+	}()
+
+	return feeder
 }
 
 // yield from the channel
-func readChan[T any](ch <-chan T, cancel context.CancelCauseFunc, yield func(T) error) {
+func readChan[T any](env *pipeEnv, ch <-chan T, yield func(T) error) {
 	for item := range ch {
 		if err := yield(item); err != nil {
-			cancel(err)
+			env.cancel(err)
 			break
 		}
 	}
 }
 
-// start feeder thread
-func startFeeder[T any](
-	ctx context.Context,
-	cancel context.CancelCauseFunc,
-	wg *sync.WaitGroup,
-	src G[T],
-) chan T {
-	// feeder channel
-	feeder := make(chan T, chanCap)
-
-	// start feeder thread
-	go func() {
-		defer func() {
-			close(feeder)
-			wg.Done()
-		}()
-
-		if err := src(toChan(ctx, feeder)); err != nil {
-			cancel(err)
+// construct function that yields to the channel
+func toChan[T any](env *pipeEnv, ch chan<- T) func(T) error {
+	return func(item T) error {
+		select {
+		case ch <- item:
+			return nil
+		case <-env.ctx.Done():
+			return errStop
 		}
-	}()
-
-	return feeder
+	}
 }
 
 var (
