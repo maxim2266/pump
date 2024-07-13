@@ -106,7 +106,7 @@ func TestPipe(t *testing.T) {
 		})
 
 		if err != nil {
-			t.Errorf("[%d] %s", i, err)
+			t.Error(err)
 			return
 		}
 
