@@ -59,39 +59,61 @@ func TestMap(t *testing.T) {
 func TestPipe(t *testing.T) {
 	const N = 10000
 
-	pipe := Chain3(
-		Map(strconv.Itoa),
-		Pipe,
-		MapE(strconv.Atoi),
-	)
+	atoi := MapE(strconv.Atoi)
+	itoa := Map(strconv.Itoa)
 
-	var errCopy error
+	pipes := [...]S[int, int]{
+		Pipe[int],
 
-	i := 0
-	err := pipe(intRange(N), func(x int) error {
-		if x != i {
-			errCopy = fmt.Errorf("unexpected value: %d instead of %d", x, i)
-		} else if i >= N {
-			errCopy = fmt.Errorf("excessive input: %d", x)
-		}
+		Chain3(
+			itoa,
+			Pipe,
+			atoi,
+		),
 
-		i++
-		return errCopy
-	})
+		Chain3(
+			Pipe,
+			itoa,
+			atoi,
+		),
 
-	if err != nil || errCopy != nil {
-		if err != errCopy {
-			t.Errorf("error mismatch:\nset: %s\ngot: %s", errCopy, err)
+		Chain3(
+			itoa,
+			atoi,
+			Pipe,
+		),
+	}
+
+	for i, pipe := range pipes {
+		count := 0
+		failed := false
+
+		err := pipe(intRange(N), func(x int) error {
+			if failed {
+				panic(fmt.Sprintf("[%d] double fault", i))
+			}
+
+			if failed = (count >= N); failed {
+				return fmt.Errorf("[%d] out of bound call: %d", i, count)
+			}
+
+			if failed = (x != count); failed {
+				return fmt.Errorf("[%d] unexpected value: %d instead of %d", i, x, count)
+			}
+
+			count++
+			return nil
+		})
+
+		if err != nil {
+			t.Errorf("[%d] %s", i, err)
 			return
 		}
 
-		t.Error(err)
-		return
-	}
-
-	if i != N {
-		t.Errorf("incomplete sequence: %d items instead of %d", i, N)
-		return
+		if count != N {
+			t.Errorf("[%d] wrong item count: %d instead of %d", i, count, N)
+			return
+		}
 	}
 }
 
