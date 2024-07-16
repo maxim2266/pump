@@ -5,9 +5,9 @@ or dynamically (for example, as a function of configuration).
 
 The package defines two generic types:
 
-  - Data generator G[T]: a callback-based ("push") iterator that supplies a stream of data of
+  - Data generator Gen[T]: a callback-based ("push") iterator that supplies a stream of data of
     any type T, and
-  - Pipeline stage S[T,U]: a function that invokes input generator G[T], does whatever processing
+  - Pipeline stage Stage[T,U]: a function that invokes input generator Gen[T], does whatever processing
     it is programmed to do, and feeds the supplied callback with data items of type U.
 
 The package also provides a basic set of functions for composing pipeline stages and binding stages
@@ -27,38 +27,38 @@ import (
 //go:generate ./gen-chains chain.go
 
 /*
-G is a generic push iterator, or a generator. When invoked with a user-provided callback, it
+Gen is a generic push iterator, or a generator. When invoked with a user-provided callback, it
 is expected to iterate its data source invoking the callback once per each data item. It is also
 expected to stop on the first error either from the callback, or stumbled over internally. It is up
 to the user to develop their own generators, because it's not possible to provide a generic code
 for all possible data sources. Also, there is one caveat: some generators can be run only once
-(for example, those sourcing the data from a socket), so please structure your code accordingly.
+(for example, those sourcing data from a socket), so please structure your code accordingly.
 */
-type G[T any] func(func(T) error) error
+type Gen[T any] func(func(T) error) error
 
 /*
 Bind takes an existing generator of some type T and returns a new generator of some type U that
 does T -> U conversion via the given stage function.
 */
-func Bind[T, U any](src G[T], fn S[T, U]) G[U] {
+func Bind[T, U any](src Gen[T], fn Stage[T, U]) Gen[U] {
 	return func(yield func(U) error) error {
 		return fn(src, yield)
 	}
 }
 
 /*
-S is a generic type (a function) representing pipeline stage. The function takes a generator
-of type G[T] and a callback of type func(U) error. When invoked, it is expected to run the
-generator, do whatever processing it is programmed to do, also calling the callback function
-once per each data element produced. Stage function is also expected to stop at and return the
-first error (if any) from either the callback, or from the iteration itself. The signature of
-the function is designed to allow for full control over when and how the source generator is
-invoked. For example, suppose we want to have a pipeline stage where processing of each input
-item involves database queries, and we also want to establish a database connection before the
-iteration, and close it afterwards. This can be achieved using the following stage function
-(for some already defined types T and U):
+Stage is a generic type (a function) representing a pipeline stage. For any given types T and U,
+the function takes a generator of type Gen[T] and a callback of type func(U) error. When invoked,
+it is expected to run the generator, do whatever processing it is programmed to do, also calling
+the callback function once per each data element produced. Stage function is expected to stop at
+and return the first error (if any) from either the callback, or from the iteration itself. The
+signature of the function is designed to allow for full control over when and how the source
+generator is invoked. For example, suppose we want to have a pipeline stage where processing of
+each input item involves database queries, and we also want to establish a database connection
+before the iteration, and close it afterwards. This can be achieved using the following stage
+function (for some already defined types T and U):
 
-	func process(src pump.G[T], yield func(U) error) error {
+	func process(src pump.Gen[T], yield func(U) error) error {
 		conn, err := connectToDatabase()
 
 		if err != nil {
@@ -79,12 +79,14 @@ iteration, and close it afterwards. This can be achieved using the following sta
 			return yield(result)
 		})
 	}
+
+For more complex use cases Sink interface can be implemented and utilised with Run/RunPipe functions.
 */
-type S[T, U any] func(G[T], func(U) error) error
+type Stage[T, U any] func(Gen[T], func(U) error) error
 
 // Filter creates a stage function that filters input items according to the given predicate.
-func Filter[T any](pred func(T) bool) S[T, T] {
-	return func(src G[T], yield func(T) error) error {
+func Filter[T any](pred func(T) bool) Stage[T, T] {
+	return func(src Gen[T], yield func(T) error) error {
 		return src(func(item T) (err error) {
 			if pred(item) {
 				err = yield(item)
@@ -96,8 +98,8 @@ func Filter[T any](pred func(T) bool) S[T, T] {
 }
 
 // Map creates a stage function that converts each data element via the given function.
-func Map[T, U any](fn func(T) U) S[T, U] {
-	return func(src G[T], yield func(U) error) error {
+func Map[T, U any](fn func(T) U) Stage[T, U] {
+	return func(src Gen[T], yield func(U) error) error {
 		return src(func(item T) error {
 			return yield(fn(item))
 		})
@@ -106,8 +108,8 @@ func Map[T, U any](fn func(T) U) S[T, U] {
 
 // MapE creates a stage function that converts each data element via the given function,
 // stopping on the first error encountered, if any.
-func MapE[T, U any](fn func(T) (U, error)) S[T, U] {
-	return func(src G[T], yield func(U) error) error {
+func MapE[T, U any](fn func(T) (U, error)) Stage[T, U] {
+	return func(src Gen[T], yield func(U) error) error {
 		return src(func(item T) error {
 			tmp, err := fn(item)
 
@@ -120,15 +122,15 @@ func MapE[T, U any](fn func(T) (U, error)) S[T, U] {
 	}
 }
 
-// Pipe is a stage function that runs its source in a separate goroutine
-func Pipe[T any](src G[T], yield func(T) error) error {
+// Pipe is a stage function that runs its source in a separate goroutine.
+func Pipe[T any](src Gen[T], yield func(T) error) error {
 	return pipeCtx(context.Background(), src, yield)
 }
 
 // PipeCtx creates a stage function that runs its source in a separate goroutine.
 // The lifetime of the pipe is managed via the given context.
-func PipeCtx[T any](ctx context.Context) S[T, T] {
-	return func(src G[T], yield func(T) error) error {
+func PipeCtx[T any](ctx context.Context) Stage[T, T] {
+	return func(src Gen[T], yield func(T) error) error {
 		return pipeCtx(ctx, src, yield)
 	}
 }
@@ -137,7 +139,7 @@ func PipeCtx[T any](ctx context.Context) S[T, T] {
 const chanCap = 32
 
 // pipe implementation
-func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
+func pipeCtx[T any](ctx context.Context, src Gen[T], yield func(T) error) error {
 	return execInCtx(ctx, func(env *pipeEnv) error {
 		return readChan(startFeeder(env, src), yield)
 	})
@@ -146,7 +148,7 @@ func pipeCtx[T any](ctx context.Context, src G[T], yield func(T) error) error {
 // Parallel constructs a stage function that invokes the given stage from n
 // goroutines in parallel. The value of n has the upper bound of 100 * runtime.NumCPU().
 // Zero or negative value of n corresponds to runtime.NumCPU().
-func Parallel[T, U any](n int, stage S[T, U]) S[T, U] {
+func Parallel[T, U any](n int, stage Stage[T, U]) Stage[T, U] {
 	return ParallelCtx(context.Background(), n, stage)
 }
 
@@ -154,7 +156,7 @@ func Parallel[T, U any](n int, stage S[T, U]) S[T, U] {
 // goroutines in parallel, under control of the given context. The value of n has
 // the upper bound of 100 * runtime.NumCPU(). Zero or negative value of n corresponds
 // to runtime.NumCPU().
-func ParallelCtx[T, U any](ctx context.Context, n int, stage S[T, U]) S[T, U] {
+func ParallelCtx[T, U any](ctx context.Context, n int, stage Stage[T, U]) Stage[T, U] {
 	// ensure realistic value for n
 	np := runtime.NumCPU()
 
@@ -165,7 +167,7 @@ func ParallelCtx[T, U any](ctx context.Context, n int, stage S[T, U]) S[T, U] {
 	}
 
 	// the stage
-	return func(src G[T], yield func(U) error) error {
+	return func(src Gen[T], yield func(U) error) error {
 		return execInCtx(ctx, func(env *pipeEnv) error {
 			// feeder channel
 			feeder := startFeeder(env, src)
@@ -247,7 +249,7 @@ func execInCtx(ctx context.Context, fn func(*pipeEnv) error) error {
 }
 
 // start feeder thread
-func startFeeder[T any](env *pipeEnv, src G[T]) <-chan T {
+func startFeeder[T any](env *pipeEnv, src Gen[T]) <-chan T {
 	// feeder channel
 	feeder := make(chan T, chanCap)
 
@@ -295,28 +297,29 @@ var (
 	errStop  = errors.New("pipe stage cancelled")
 )
 
-// Sink is an interface to a generic pipe terminator. When running a pipe
-// via Run() or RunPipe(), the method Do() will be called on each data item,
-// and in the end the Close() method will be invoked with a flag indicating successful
-// completion. In practice this interface is probably worth implementing only in complex
-// scenarios, for example, if we want to start a database transaction in the constructor
-// of the object implementing this inteface, write the data items to the database in Do() method,
-// and then in Close() method either commit the transaction on success, or roll it back on failure.
-// In most other cases it may be easier to invoke a pipeline function directly with "yield"
-// function defined inline.
+/*
+Sink is an interface to a generic pipe terminator. When running a pipe via Run() or RunPipe(),
+the method Do() will be called on each data item, and in the end the Close() method will be
+invoked with a flag indicating successful completion. In practice this interface is probably worth
+implementing only in complex scenarios, for example, if we want to start a database transaction
+in the constructor of the object implementing this interface, write the data items to the
+database in Do() method, and then in Close() method we want to either commit the transaction
+on success, or to roll it back on failure.  In most other cases it may be easier to invoke a
+pipeline function directly with "yield" function defined inline.
+*/
 type Sink[T any] interface {
 	Do(T) error
 	Close(ok bool) error
 }
 
 // RunPipe invokes Run with the pipe bound to the source.
-func RunPipe[T, U any](src G[T], pipe S[T, U], makeSink func() (Sink[U], error)) error {
+func RunPipe[T, U any](src Gen[T], pipe Stage[T, U], makeSink func() (Sink[U], error)) error {
 	return Run(Bind(src, pipe), makeSink)
 }
 
 // Run runs the given source into the sink produced by the given Sink
 // constructor function.
-func Run[T any](src G[T], makeSink func() (Sink[T], error)) (err error) {
+func Run[T any](src Gen[T], makeSink func() (Sink[T], error)) (err error) {
 	var sink Sink[T]
 
 	if sink, err = makeSink(); err != nil {
@@ -341,7 +344,7 @@ func Run[T any](src G[T], makeSink func() (Sink[T], error)) (err error) {
 
 // SinkInto is a convenience function that creates a Sink constructor from an existing
 // sink object.
-func SinkInto[T any, S Sink[T]](sink S) func() (Sink[T], error) {
+func SinkInto[T any, Stage Sink[T]](sink Stage) func() (Sink[T], error) {
 	return func() (Sink[T], error) {
 		return sink, nil
 	}

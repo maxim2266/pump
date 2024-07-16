@@ -11,9 +11,9 @@ returns the first error encountered.
 
 The package defines two generic types:
 
-  - Data generator `G[T]`: a callback-based ("push") iterator that supplies a stream of data of
+  - Data generator `Gen[T]`: a callback-based ("push") iterator that supplies a stream of data of
     any type `T`, and
-  - Pipeline stage `S[T,U]`: a function that invokes input generator `G[T]`, does whatever processing
+  - Pipeline stage `Stage[T,U]`: a function that invokes input generator `Gen[T]`, does whatever processing
     it is programmed to do, and feeds the supplied callback with data items of type `U`.
 
 The package also provides a basic set of functions for composing pipeline stages and binding stages

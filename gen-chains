@@ -22,8 +22,8 @@ package $GOPACKAGE"
 
 # Chain2
 echo '// Chain2 assembles 2 pipeline stages into one.
-func Chain2[A, B, C any](s1 S[A, B], s2 S[B, C]) S[A, C] {
-	return func(src G[A], yield func(C) error) error {
+func Chain2[A, B, C any](s1 Stage[A, B], s2 Stage[B, C]) Stage[A, C] {
+	return func(src Gen[A], yield func(C) error) error {
 		return s2(Bind(src, s1), yield)
 	}
 }
@@ -46,16 +46,16 @@ do
 	done
 
 	# function parameters start
-	echo -n " any](s1 S[A, B], s2 S[B, C]"
+	echo -n " any](s1 Stage[A, B], s2 Stage[B, C]"
 
 	# function parameters
 	for (( j=3; j<=i; j++ ))
 	do
-		echo -n ", s${j} S[${letters:((j-1)):1}, ${letters:j:1}]"
+		echo -n ", s${j} Stage[${letters:((j-1)):1}, ${letters:j:1}]"
 	done
 
 	# end of function signature
-	echo ") S[A, ${letters:i:1}] {"
+	echo ") Stage[A, ${letters:i:1}] {"
 
 	# implementation start
 	echo -n -e "\treturn Chain2(Chain$((i-1))(s1, s2"

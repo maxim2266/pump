@@ -62,7 +62,7 @@ func TestPipe(t *testing.T) {
 	atoi := MapE(strconv.Atoi)
 	itoa := Map(strconv.Itoa)
 
-	pipes := [...]S[int, int]{
+	pipes := [...]Stage[int, int]{
 		Pipe[int],
 
 		Chain3(
@@ -137,7 +137,7 @@ func TestParallel(t *testing.T) {
 	itoa := Map(strconv.Itoa)
 	even := Filter(func(x int) bool { return x&1 == 0 })
 
-	pipes := [...]S[int, int]{
+	pipes := [...]Stage[int, int]{
 		Chain3(
 			itoa,
 			Parallel(0, atoi),
@@ -208,7 +208,7 @@ func TestParallelErr(t *testing.T) {
 	testPipeErr(t, Parallel(0, MapE(strconv.Atoi)))
 }
 
-func fromSlice[T any](src []T) G[T] {
+func fromSlice[T any](src []T) Gen[T] {
 	return func(yield func(T) error) (err error) {
 		for _, s := range src {
 			if err = yield(s); err != nil {
@@ -220,7 +220,7 @@ func fromSlice[T any](src []T) G[T] {
 	}
 }
 
-func intRange(n int) G[int] {
+func intRange(n int) Gen[int] {
 	return func(yield func(int) error) (err error) {
 		for i := 0; i < n; i++ {
 			if err = yield(i); err != nil {
@@ -232,13 +232,13 @@ func intRange(n int) G[int] {
 	}
 }
 
-func increment(src G[int], yield func(int) error) error {
+func increment(src Gen[int], yield func(int) error) error {
 	return src(func(x int) error {
 		return yield(x + 1)
 	})
 }
 
-func testPipeErr(t *testing.T, pipe S[string, int]) {
+func testPipeErr(t *testing.T, pipe Stage[string, int]) {
 	const (
 		N = 1000
 		M = 100
