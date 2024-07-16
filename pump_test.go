@@ -85,36 +85,41 @@ func TestPipe(t *testing.T) {
 	}
 
 	for i, pipe := range pipes {
-		count := 0
-		failed := false
-
-		err := pipe(intRange(N), func(x int) error {
-			if failed {
-				panic(fmt.Sprintf("[%d] double fault", i))
-			}
-
-			if failed = (count >= N); failed {
-				return fmt.Errorf("[%d] out of bound call: %d", i, count)
-			}
-
-			if failed = (x != count); failed {
-				return fmt.Errorf("[%d] unexpected value: %d instead of %d", i, x, count)
-			}
-
-			count++
-			return nil
-		})
-
-		if err != nil {
-			t.Error(err)
-			return
-		}
-
-		if count != N {
-			t.Errorf("[%d] wrong item count: %d instead of %d", i, count, N)
+		if err := RunPipe(intRange(N), pipe, SinkInto(&pipeTestSink{N: N})); err != nil {
+			t.Errorf("[%d] %s", i, err)
 			return
 		}
 	}
+}
+
+type pipeTestSink struct {
+	count, N int
+	failed   bool
+}
+
+func (ps *pipeTestSink) Do(x int) error {
+	if ps.failed {
+		panic("double fault")
+	}
+
+	if ps.failed = (ps.count >= ps.N); ps.failed {
+		return fmt.Errorf("out of bound call: %d", ps.count)
+	}
+
+	if ps.failed = (x != ps.count); ps.failed {
+		return fmt.Errorf("unexpected value: %d instead of %d", x, ps.count)
+	}
+
+	ps.count++
+	return nil
+}
+
+func (ps *pipeTestSink) Close(ok bool) (err error) {
+	if ok && ps.count != ps.N {
+		err = fmt.Errorf("wrong item count: %d instead of %d", ps.count, ps.N)
+	}
+
+	return
 }
 
 func TestPipeErr(t *testing.T) {
@@ -248,7 +253,7 @@ func testPipeErr(t *testing.T, pipe S[string, int]) {
 	for n, errInd := 0, rand.Int()%N; n < M; n, errInd = n+1, rand.Int()%N {
 		data[errInd] = "?"
 
-		err := pipe(fromSlice(data), func(x int) error { return nil })
+		err := pipe(fromSlice(data), func(_ int) error { return nil })
 
 		if err == nil {
 			t.Errorf("[%d] missing error", errInd)

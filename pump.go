@@ -294,3 +294,55 @@ var (
 	errPanic = errors.New("pipe stage panicked")
 	errStop  = errors.New("pipe stage cancelled")
 )
+
+// Sink is an interface to a generic pipe terminator. When running a pipe
+// via Run() or RunPipe(), the method Do() will be called on each data item,
+// and in the end the Close() method will be invoked with a flag indicating successful
+// completion. In practice this interface is probably worth implementing only in complex
+// scenarios, for example, if we want to start a database transaction in the constructor
+// of the object implementing this inteface, write the data items to the database in Do() method,
+// and then in Close() method either commit the transaction on success, or roll it back on failure.
+// In most other cases it may be easier to invoke a pipeline function directly with "yield"
+// function defined inline.
+type Sink[T any] interface {
+	Do(T) error
+	Close(ok bool) error
+}
+
+// RunPipe invokes Run with the pipe bound to the source.
+func RunPipe[T, U any](src G[T], pipe S[T, U], makeSink func() (Sink[U], error)) error {
+	return Run(Bind(src, pipe), makeSink)
+}
+
+// Run runs the given source into the sink produced by the given Sink
+// constructor function.
+func Run[T any](src G[T], makeSink func() (Sink[T], error)) (err error) {
+	var sink Sink[T]
+
+	if sink, err = makeSink(); err != nil {
+		return
+	}
+
+	defer func() {
+		if p := recover(); p != nil {
+			sink.Close(false)
+			panic(p)
+		}
+
+		if err == nil {
+			err = sink.Close(true)
+		} else {
+			sink.Close(false)
+		}
+	}()
+
+	return src(sink.Do)
+}
+
+// SinkInto is a convenience function that creates a Sink constructor from an existing
+// sink object.
+func SinkInto[T any, S Sink[T]](sink S) func() (Sink[T], error) {
+	return func() (Sink[T], error) {
+		return sink, nil
+	}
+}
