@@ -297,19 +297,29 @@ var (
 	errStop  = errors.New("pipe stage cancelled")
 )
 
+// Status is the type of status codes used in Sink.Close.
+type Status int
+
+// status codes for Sink.Close.
+const (
+	StatusOK Status = iota
+	StatusError
+	StatusPanic
+)
+
 /*
 Sink is an interface to a generic pipe terminator. When running a pipe via Run() or RunPipe(),
 the method Do() will be called on each data item, and in the end the Close() method will be
-invoked with a flag indicating successful completion. In practice this interface is probably worth
-implementing only in complex scenarios, for example, if we want to start a database transaction
-in the constructor of the object implementing this interface, write the data items to the
-database in Do() method, and then in Close() method we want to either commit the transaction
-on success, or to roll it back on failure.  In most other cases it may be easier to invoke a
-pipeline function directly with "yield" function defined inline.
+invoked with a flag indicating completion status. In practice this interface is probably worth
+implementing only in complex enough scenarios, for example, if we want to start a database
+transaction in the constructor of the object implementing this interface, then write each data
+item to the database in Do() method, and finally in Close() method we want to either commit
+the transaction on success, or roll it back on failure.  In most other cases it may be easier
+to just invoke the pipeline directly with "yield" function defined inline.
 */
 type Sink[T any] interface {
 	Do(T) error
-	Close(ok bool) error
+	Close(Status) error
 }
 
 // RunPipe invokes Run with the pipe bound to the source.
@@ -328,14 +338,14 @@ func Run[T any](src Gen[T], makeSink func() (Sink[T], error)) (err error) {
 
 	defer func() {
 		if p := recover(); p != nil {
-			sink.Close(false)
+			sink.Close(StatusPanic)
 			panic(p)
 		}
 
 		if err == nil {
-			err = sink.Close(true)
+			err = sink.Close(StatusOK)
 		} else {
-			sink.Close(false)
+			sink.Close(StatusError)
 		}
 	}()
 

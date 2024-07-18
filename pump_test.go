@@ -114,8 +114,8 @@ func (ps *pipeTestSink) Do(x int) error {
 	return nil
 }
 
-func (ps *pipeTestSink) Close(ok bool) (err error) {
-	if ok && ps.count != ps.N {
+func (ps *pipeTestSink) Close(status Status) (err error) {
+	if status == StatusOK && ps.count != ps.N {
 		err = fmt.Errorf("wrong item count: %d instead of %d", ps.count, ps.N)
 	}
 
