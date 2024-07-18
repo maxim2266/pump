@@ -269,28 +269,26 @@ func testPipeErr(t *testing.T, pipe Stage[string, int]) {
 	}
 }
 
+func BenchmarkSimple(b *testing.B) {
+	bench(b, pass)
+}
+
 func BenchmarkPipe(b *testing.B) {
+	bench(b, Pipe)
+}
+
+func bench(b *testing.B, stage Stage[int, int]) {
 	buff := make([]int, b.N)
 
 	for i := range buff {
 		buff[i] = i & 1
 	}
 
-	src := func(yield func(int) error) error {
-		for _, x := range buff {
-			if err := yield(x); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}
-
 	sum := 0
 
 	b.ResetTimer()
 
-	err := Pipe(src, func(x int) error {
+	err := stage(fromSlice(buff), func(x int) error {
 		sum += x
 		return nil
 	})
@@ -306,6 +304,11 @@ func BenchmarkPipe(b *testing.B) {
 		b.Errorf("unexpected sum: %d instead of %d", sum, b.N/2)
 		return
 	}
+}
+
+//go:noinline
+func pass(src Gen[int], yield func(int) error) error {
+	return src(yield)
 }
 
 func Example() {
