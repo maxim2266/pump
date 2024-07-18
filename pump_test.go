@@ -277,6 +277,10 @@ func BenchmarkPipe(b *testing.B) {
 	bench(b, Pipe)
 }
 
+func BenchmarkParallel(b *testing.B) {
+	bench(b, Parallel(0, pass))
+}
+
 func bench(b *testing.B, stage Stage[int, int]) {
 	buff := make([]int, b.N)
 
