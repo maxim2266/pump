@@ -1,7 +1,8 @@
 /*
 Package pump provides a minimalist framework for composing data processing pipelines.
 The pipelines are type-safe, impose little overhead, and can be composed either statically,
-or dynamically (for example, as a function of configuration).
+or dynamically (for example, as a function of configuration). A running pipeline stops on and
+returns the first error encountered.
 
 The package defines two generic types:
 
@@ -11,7 +12,7 @@ The package defines two generic types:
     it is programmed to do, and feeds the supplied callback with data items of type U.
 
 The package also provides a basic set of functions for composing pipeline stages and binding stages
-to generators, as well as a stage that runs its generator in a separate goroutine.
+to generators, as well as support for pipelining and parallel execution.
 */
 package pump
 
@@ -354,7 +355,7 @@ func Run[T any](src Gen[T], makeSink func() (Sink[T], error)) (err error) {
 
 // SinkInto is a convenience function that creates a Sink constructor from an existing
 // sink object.
-func SinkInto[T any, Stage Sink[T]](sink Stage) func() (Sink[T], error) {
+func SinkInto[T any](sink Sink[T]) func() (Sink[T], error) {
 	return func() (Sink[T], error) {
 		return sink, nil
 	}
