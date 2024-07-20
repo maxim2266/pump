@@ -353,9 +353,9 @@ func Run[T any](src Gen[T], makeSink func() (Sink[T], error)) (err error) {
 	return src(sink.Do)
 }
 
-// SinkInto is a convenience function that creates a Sink constructor from an existing
+// Into is a convenience function that creates a Sink constructor from an existing
 // sink object.
-func SinkInto[T any](sink Sink[T]) func() (Sink[T], error) {
+func Into[T any](sink Sink[T]) func() (Sink[T], error) {
 	return func() (Sink[T], error) {
 		return sink, nil
 	}

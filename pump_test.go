@@ -85,7 +85,7 @@ func TestPipe(t *testing.T) {
 	}
 
 	for i, pipe := range pipes {
-		if err := RunPipe(intRange(N), pipe, SinkInto(&pipeTestSink{N: N})); err != nil {
+		if err := RunPipe(intRange(N), pipe, Into(&pipeTestSink{N: N})); err != nil {
 			t.Errorf("[%d] %s", i, err)
 			return
 		}
