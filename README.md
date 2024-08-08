@@ -44,7 +44,7 @@ func fromSlice[T any](src []T) Gen[T] {
 In practice generators are more likely to source data from files, sockets, database queries, etc.
 
 The second type, `Stage`, is a function that is expected to invoke the given generator,
-process each data item of type `T` and possibly forward the result (of type `U`) to the given callback.
+process each data item of type `T` and possibly forward the results (of type `U`) to the given callback.
 The `Stage` type is defined as:
 ```Go
 type Stage[T, U any] func(Gen[T], func(U) error) error
@@ -133,7 +133,7 @@ pipe := Chain3(
            inrement,
            Parallel(5, times2),
            modulo5,
-		)
+        )
 ```
 Upon invocation of this pipeline, its generator and `increment` stage will be running
 in a dedicated goroutine, the `times2` stage will be running in 5 goroutines in parallel,
@@ -150,8 +150,8 @@ All benchmarks below simply pump integers through stages with no processing at a
 measuring the overhead associated with running stages themselves. The first benchmark (the simplest
 pass-through stage) shows a very small overhead probably due to compiler optimisations, but that
 also highlights the fact that the iteration itself is generally quite efficient. Benchmarks
-for Pipe and Parallel stages show higher overhead because of the Go channels used internally
-(one channel for Pipe stage, and two for Parallel).
+for `Pipe` and `Parallel` stages show higher overhead because of the Go channels used internally
+(one channel for `Pipe` stage, and two for `Parallel`).
 ```
 ▶ go test -bench .
 goos: linux
