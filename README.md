@@ -137,8 +137,18 @@ pipe := Chain3(
 ```
 Upon invocation of this pipeline, its generator and `increment` stage will be running
 in a dedicated goroutine, the `times2` stage will be running in 5 goroutines in parallel,
-and the last stage will be in the calling goroutine. _Note_: `Parallel` stage does not
-preserve the order of data items.
+and the last stage will be in the calling goroutine.
+
+The above pipe can also be arranged to run all stages in parallel:
+```Go
+pipe := Parallel(5, Chain3(
+           inrement,
+           times2,
+           modulo5,
+        ))
+```
+
+_Note_: `Parallel` stage does not preserve the order of data items.
 
 In general, pipelines can be assembled either statically (i.e., when `pipe` is literally
 a static variable), or dynamically, for example, as a function of configuration. Also,
