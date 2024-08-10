@@ -24,6 +24,10 @@ For API details see [documentation](https://godoc.org/github.com/maxim2266/pump)
 #### Concept
 The library is built around two data types: generator `Gen[T any]` and stage `Stage[T,U any]`.
 Generator is a function that passes data items to its argument - a callback function `func(T) error`.
+It is defined as
+```Go
+type Gen[T any] func(func(T) error) error
+```
 This is very similar to `iter.Seq` type from Go v1.23, except that the callback function
 returns `error` instead of a boolean. Any implementation of the generator function should stop
 on the first error returned from the callback, or on any internal error encountered during iteration.
@@ -44,8 +48,8 @@ func fromSlice[T any](src []T) Gen[T] {
 In practice generators are more likely to source data from files, sockets, database queries, etc.
 
 The second type, `Stage`, is a function that is expected to invoke the given generator,
-process each data item of type `T` and possibly forward the results (of type `U`) to the given callback.
-The `Stage` type is defined as:
+process each data item of type `T` and possibly forward each result (of type `U`) to the given
+callback. The `Stage` type is defined as
 ```Go
 type Stage[T, U any] func(Gen[T], func(U) error) error
 ```
@@ -57,6 +61,7 @@ func increment(src Gen[int], yield func(int) error) error {
     })
 }
 ```
+Just as a note, the library provides a more succinct way of defining such a simple stage (see below).
 
 The rest of the library is essentially about constructing and composing stages. Multiple stages
 can be composed into one using `Chain*` family of functions, for example:
@@ -74,22 +79,22 @@ err := pipe(fromSlice([]int{ 1, 2, 3 }), func(x int) error {
 if err != nil { ... }
 ```
 
-To assist with writing simple stage functions like `increment` the library provides
-a few helpful constructors to simplify pipe definition, for example:
-```Go
-pipe := Chain3(
-           Map(func(x int) int { return x + 1 }),
-           Map(func(x int) int { return x * 2 }),
-           Map(func(x int) int { return x % 5 }),
-        )
-```
-Or, alternatively:
+To assist with writing simple stage functions (like `increment` above) the library provides
+a number of constructors, for example:
 ```Go
 inrement := Map(func(x int) int { return x + 1 })
 times2   := Map(func(x int) int { return x * 2 })
 modulo5  := Map(func(x int) int { return x % 5 })
 
 pipe := Chain3(increment, times2, modulo5)
+```
+Or, alternatively:
+```Go
+pipe := Chain3(
+           Map(func(x int) int { return x + 1 }),
+           Map(func(x int) int { return x * 2 }),
+           Map(func(x int) int { return x % 5 }),
+        )
 ```
 
 In fact, a stage function can convert any input type `T` to any output type `U`, so the above
@@ -139,7 +144,7 @@ Upon invocation of this pipeline, its generator and `increment` stage will be ru
 in a dedicated goroutine, the `times2` stage will be running in 5 goroutines in parallel,
 and the last stage will be in the calling goroutine.
 
-The above pipe can also be arranged to run all stages in parallel:
+The above pipeline can also be rearranged to run all stages in parallel:
 ```Go
 pipe := Parallel(5, Chain3(
            inrement,
