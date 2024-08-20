@@ -71,13 +71,31 @@ pipe := Chain3(increment, times2, modulo5)
 Here we want to calculate `(2 * (x + 1)) % 5` for each integer `x`. The resulting `pipe` is a new
 stage function of type `func(Gen[int], func(int) error) error`, and it can be invoked like
 ```Go
-err := pipe(fromSlice([]int{ 1, 2, 3 }), func(x int) error {
+gen := fromSlice([]int{ 1, 2, 3 }) // input data generator
+err := pipe(gen, func(x int) error {
     _, e := fmt.Println(x)
     return e
 })
 
 if err != nil { ... }
 ```
+Or, using for-range loop:
+```Go
+gen := fromSlice([]int{ 1, 2, 3 }) // input data generator
+src := From(Bind(gen, pipe))       // iterator
+
+for x := range src.All {
+    if _, err := fmt.Println(x); err != nil {
+        return err
+    }
+}
+
+if src.Err != nil {
+    return src.Err
+}
+```
+_Side note_: ranging over a function may be giving a bit more convenient syntax, but in practice
+it often results in more verbose error handling code.
 
 To assist with writing simple stage functions (like `increment` above) the library provides
 a number of constructors, for example:
@@ -162,20 +180,22 @@ modifications we have to make to the code when requirements change.
 
 #### Benchmarks
 All benchmarks below simply pump integers through stages with no processing at all, thus only
-measuring the overhead associated with running stages themselves. The first benchmark (the simplest
-pass-through stage) shows a very small overhead probably due to compiler optimisations, but that
-also highlights the fact that the iteration itself is generally quite efficient. Benchmarks
-for `Pipe` and `Parallel` stages show higher overhead because of the Go channels used internally
-(one channel for `Pipe` stage, and two for `Parallel`).
+measuring the overhead associated with running stages themselves. The first benchmark (the
+simplest pass-through stage) shows a very small overhead probably due to compiler optimisations,
+but that also highlights the fact that the iteration itself is generally quite efficient. Using
+for-range loop (second benchmark) gives a constant overhead of just a few nanoseconds per
+iteration. Benchmarks for `Pipe` and `Parallel` stages show higher overhead because of the Go
+channels used internally (one channel for `Pipe` stage, and two for `Parallel`).
 ```
 ▶ go test -bench .
 goos: linux
 goarch: amd64
 pkg: github.com/maxim2266/pump
 cpu: Intel(R) Core(TM) i5-8500T CPU @ 2.10GHz
-BenchmarkSimple-6     	608652330	         1.934 ns/op
-BenchmarkPipe-6       	 9804087	       120.4 ns/op
-BenchmarkParallel-6   	 3579961	       341.2 ns/op
+BenchmarkSimple-6      	621101976         1.942 ns/op
+BenchmarkRangeFunc-6   	264930876         4.554 ns/op
+BenchmarkPipe-6        	 9554814        123.3 ns/op
+BenchmarkParallel-6    	 3374488        340.0 ns/op
 ```
 
 #### Project status
