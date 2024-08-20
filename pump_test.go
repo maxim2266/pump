@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestMap(t *testing.T) {
+func TestChain(t *testing.T) {
 	type testCase struct {
 		in  string
 		out int
@@ -62,7 +62,7 @@ func TestPipe(t *testing.T) {
 	atoi := MapE(strconv.Atoi)
 	itoa := Map(strconv.Itoa)
 
-	pipes := [...]Stage[int, int]{
+	stages := [...]Stage[int, int]{
 		Pipe[int],
 
 		Chain3(
@@ -84,50 +84,47 @@ func TestPipe(t *testing.T) {
 		),
 	}
 
-	for i, pipe := range pipes {
-		if err := RunPipe(intRange(N), pipe, Into(&pipeTestSink{N: N})); err != nil {
-			t.Errorf("[%d] %s", i, err)
+	for i, stage := range stages {
+		failed := false
+		n := 0
+		src := From(Bind(intRange(N), stage))
+
+		for x := range src.All {
+			if failed {
+				panic(fmt.Sprintf("[%d] double fault", i))
+			}
+
+			if failed = n > N; failed {
+				t.Errorf("[%d] unexpected iteration", i)
+				return
+			}
+
+			if failed = x != n; failed {
+				t.Errorf("[%d] unexpected value: %d instead of %d", i, x, n)
+				return
+			}
+
+			n++
+		}
+
+		if src.Err != nil {
+			t.Errorf("[%d] %s", i, src.Err)
+			return
+		}
+
+		if n != N {
+			t.Errorf("[%d] unexpected number of iterations: %d instead of %d", i, n, N)
 			return
 		}
 	}
 }
 
-type pipeTestSink struct {
-	count, N int
-	failed   bool
-}
-
-func (ps *pipeTestSink) Do(x int) error {
-	if ps.failed {
-		panic("double fault")
-	}
-
-	if ps.failed = (ps.count >= ps.N); ps.failed {
-		return fmt.Errorf("out of bound call: %d", ps.count)
-	}
-
-	if ps.failed = (x != ps.count); ps.failed {
-		return fmt.Errorf("unexpected value: %d instead of %d", x, ps.count)
-	}
-
-	ps.count++
-	return nil
-}
-
-func (ps *pipeTestSink) Close(status Status) (err error) {
-	if status == StatusOK && ps.count != ps.N {
-		err = fmt.Errorf("wrong item count: %d instead of %d", ps.count, ps.N)
-	}
-
-	return
-}
-
 func TestPipeErr(t *testing.T) {
-	testPipeErr(t, Chain2(MapE(strconv.Atoi), PipeCtx[int](context.Background())))
+	testStageErr(t, Chain2(MapE(strconv.Atoi), PipeCtx[int](context.Background())))
 }
 
 func TestPipeErr2(t *testing.T) {
-	testPipeErr(t, Chain2(Pipe, MapE(strconv.Atoi)))
+	testStageErr(t, Chain2(Pipe, MapE(strconv.Atoi)))
 }
 
 func TestParallel(t *testing.T) {
@@ -137,7 +134,7 @@ func TestParallel(t *testing.T) {
 	itoa := Map(strconv.Itoa)
 	even := Filter(func(x int) bool { return x&1 == 0 })
 
-	pipes := [...]Stage[int, int]{
+	stages := [...]Stage[int, int]{
 		Chain3(
 			itoa,
 			Parallel(0, atoi),
@@ -175,16 +172,16 @@ func TestParallel(t *testing.T) {
 
 	res := make([]int, 0, N/2)
 
-	for no, pipe := range pipes {
+	for no, stage := range stages {
 		res = res[:0]
+		src := From(Bind(intRange(N), stage))
 
-		err := pipe(intRange(N), func(x int) error {
+		for x := range src.All {
 			res = append(res, x)
-			return nil
-		})
+		}
 
-		if err != nil {
-			t.Errorf("[%d] %s", no, err)
+		if src.Err != nil {
+			t.Errorf("[%d] %s", no, src.Err)
 			return
 		}
 
@@ -205,7 +202,38 @@ func TestParallel(t *testing.T) {
 }
 
 func TestParallelErr(t *testing.T) {
-	testPipeErr(t, Parallel(0, MapE(strconv.Atoi)))
+	testStageErr(t, Parallel(0, MapE(strconv.Atoi)))
+}
+
+func TestEarlyExit(t *testing.T) {
+	sources := [...]Gen[int]{
+		intRange(5),
+		Bind(intRange(5), Pipe),
+		Bind(intRange(5), Parallel(0, pass)),
+	}
+
+	for i, gen := range sources {
+		sum := 0
+		src := From(gen)
+
+		for x := range src.All {
+			sum += x
+
+			if x == 2 {
+				break
+			}
+		}
+
+		if src.Err != nil {
+			t.Errorf("[%d] unexpected error: %s", i, src.Err)
+			return
+		}
+
+		if sum != 3 {
+			t.Errorf("[%d] unexpected value: %d instead of 3", i, sum)
+			return
+		}
+	}
 }
 
 func fromSlice[T any](src []T) Gen[T] {
@@ -238,7 +266,7 @@ func increment(src Gen[int], yield func(int) error) error {
 	})
 }
 
-func testPipeErr(t *testing.T, pipe Stage[string, int]) {
+func testStageErr(t *testing.T, stage Stage[string, int]) {
 	const (
 		N = 1000
 		M = 100
@@ -253,15 +281,19 @@ func testPipeErr(t *testing.T, pipe Stage[string, int]) {
 	for n, errInd := 0, rand.Int()%N; n < M; n, errInd = n+1, rand.Int()%N {
 		data[errInd] = "?"
 
-		err := pipe(fromSlice(data), func(_ int) error { return nil })
+		src := From(Bind(fromSlice(data), stage))
 
-		if err == nil {
+		for range src.All {
+			// do nothing
+		}
+
+		if src.Err == nil {
 			t.Errorf("[%d] missing error", errInd)
 			return
 		}
 
-		if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
-			t.Errorf("[%d] unexpected error: %s", errInd, err)
+		if src.Err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
+			t.Errorf("[%d] unexpected error: %s", errInd, src.Err)
 			return
 		}
 
@@ -271,6 +303,35 @@ func testPipeErr(t *testing.T, pipe Stage[string, int]) {
 
 func BenchmarkSimple(b *testing.B) {
 	bench(b, pass)
+}
+
+func BenchmarkRangeFunc(b *testing.B) {
+	buff := make([]int, b.N)
+
+	for i := range buff {
+		buff[i] = i & 1
+	}
+
+	sum := 0
+	src := From(Bind(fromSlice(buff), pass))
+
+	b.ResetTimer()
+
+	for x := range src.All {
+		sum += x
+	}
+
+	b.StopTimer()
+
+	if src.Err != nil {
+		b.Error(src.Err)
+		return
+	}
+
+	if sum != b.N/2 {
+		b.Errorf("unexpected sum: %d instead of %d", sum, b.N/2)
+		return
+	}
 }
 
 func BenchmarkPipe(b *testing.B) {
@@ -310,7 +371,6 @@ func bench(b *testing.B, stage Stage[int, int]) {
 	}
 }
 
-//go:noinline
 func pass(src Gen[int], yield func(int) error) error {
 	return src(yield)
 }

@@ -41,9 +41,51 @@ type Gen[T any] func(func(T) error) error
 Bind takes an existing generator of some type T and returns a new generator of some type U that
 does T -> U conversion via the given stage function.
 */
-func Bind[T, U any](src Gen[T], fn Stage[T, U]) Gen[U] {
+func Bind[T, U any](src Gen[T], stage Stage[T, U]) Gen[U] {
 	return func(yield func(U) error) error {
-		return fn(src, yield)
+		return stage(src, yield)
+	}
+}
+
+/*
+Iter is an iterator over the given generator. Its main purpose is to provide
+a function to range over using a for loop. Since the release of Go v1.23 everybody
+does range over functions, so me too. Given some type T and a generator "gen" of type
+Gen[T], we can then do:
+
+	src := From(gen)
+
+	for item := range src.All {
+		// process item
+	}
+
+	if src.Err != nil { ... }
+
+A generator like "gen" is typically constructed as some input generator bound
+to a processing stage using Bind() function.
+*/
+type Iter[T any] struct {
+	Err error // error returned from the pipeline
+	src Gen[T]
+}
+
+// From constructs a new iterator from the given generator function.
+func From[T any](src Gen[T]) Iter[T] {
+	return Iter[T]{src: src}
+}
+
+// All is the function to range over using a for loop.
+func (it *Iter[T]) All(yield func(T) bool) {
+	it.Err = it.src(func(item T) (e error) {
+		if !yield(item) {
+			e = ErrStop
+		}
+
+		return
+	})
+
+	if errors.Is(it.Err, ErrStop) {
+		it.Err = nil
 	}
 }
 
@@ -287,76 +329,14 @@ func toChan[T any](env *pipeEnv, ch chan<- T) func(T) error {
 		case ch <- item:
 			return nil
 		case <-env.ctx.Done():
-			return errStop
+			return env.ctx.Err()
 		}
 	}
 }
 
-var (
-	// predefined errors
-	errPanic = errors.New("pipe stage panicked")
-	errStop  = errors.New("pipe stage cancelled")
-)
+var errPanic = errors.New("pipeline panicked")
 
-// Status is the type of status codes used in Sink.Close.
-type Status int
-
-// status codes for Sink.Close.
-const (
-	StatusOK Status = iota
-	StatusError
-	StatusPanic
-)
-
-/*
-Sink is an interface to a generic pipe terminator. When running a pipe via Run() or RunPipe(),
-the method Do() will be called on each data item, and in the end the Close() method will be
-invoked with a flag indicating completion status. In practice this interface is probably worth
-implementing only in complex enough scenarios, for example, if we want to start a database
-transaction in the constructor of the object implementing this interface, then write each data
-item to the database in Do() method, and finally in Close() method we want to either commit
-the transaction on success, or roll it back on failure.  In most other cases it may be easier
-to just invoke the pipeline directly with "yield" function defined inline.
-*/
-type Sink[T any] interface {
-	Do(T) error
-	Close(Status) error
-}
-
-// RunPipe invokes Run with the pipe bound to the source.
-func RunPipe[T, U any](src Gen[T], pipe Stage[T, U], makeSink func() (Sink[U], error)) error {
-	return Run(Bind(src, pipe), makeSink)
-}
-
-// Run runs the given source into the sink produced by the given Sink
-// constructor function.
-func Run[T any](src Gen[T], makeSink func() (Sink[T], error)) (err error) {
-	var sink Sink[T]
-
-	if sink, err = makeSink(); err != nil {
-		return
-	}
-
-	defer func() {
-		if p := recover(); p != nil {
-			sink.Close(StatusPanic)
-			panic(p)
-		}
-
-		if err == nil {
-			err = sink.Close(StatusOK)
-		} else {
-			sink.Close(StatusError)
-		}
-	}()
-
-	return src(sink.Do)
-}
-
-// Into is a convenience function that creates a Sink constructor from an existing
-// sink object.
-func Into[T any](sink Sink[T]) func() (Sink[T], error) {
-	return func() (Sink[T], error) {
-		return sink, nil
-	}
-}
+// ErrStop signals early exit from range over function loop. It is not stored in
+// Iter.Err, but within a stage function in some (probably, rare) situations it may be
+// treated as a special case.
+var ErrStop = errors.New("pipeline cancelled")

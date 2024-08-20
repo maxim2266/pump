@@ -179,4 +179,4 @@ BenchmarkParallel-6   	 3579961	       341.2 ns/op
 ```
 
 #### Project status
-Tested on several Linux Mint versions from 21.x range. Requires Go version 1.21 or higher.
+Tested on several Linux Mint versions from 21.x range. Requires Go version 1.23 or higher.

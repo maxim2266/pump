@@ -1,3 +1,3 @@
 module github.com/maxim2266/pump
 
-go 1.21
+go 1.23
