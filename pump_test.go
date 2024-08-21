@@ -206,20 +206,23 @@ func TestParallelErr(t *testing.T) {
 }
 
 func TestEarlyExit(t *testing.T) {
+	const (
+		N = 50
+		M = 20
+	)
+
 	sources := [...]Gen[int]{
-		intRange(5),
-		Bind(intRange(5), Pipe),
-		Bind(intRange(5), Parallel(0, pass)),
+		genOnes(N),
+		Bind(genOnes(N), Pipe),
+		Bind(genOnes(N), Parallel(0, pass)),
 	}
 
 	for i, gen := range sources {
-		sum := 0
+		count := 0
 		src := From(gen)
 
 		for x := range src.All {
-			sum += x
-
-			if x == 2 {
+			if count += x; count == M {
 				break
 			}
 		}
@@ -229,8 +232,8 @@ func TestEarlyExit(t *testing.T) {
 			return
 		}
 
-		if sum != 3 {
-			t.Errorf("[%d] unexpected value: %d instead of 3", i, sum)
+		if count != M {
+			t.Errorf("[%d] unexpected value: %d instead of %d", i, count, M)
 			return
 		}
 	}
@@ -252,6 +255,18 @@ func intRange(n int) Gen[int] {
 	return func(yield func(int) error) (err error) {
 		for i := 0; i < n; i++ {
 			if err = yield(i); err != nil {
+				break
+			}
+		}
+
+		return
+	}
+}
+
+func genOnes(n int) Gen[int] {
+	return func(yield func(int) error) (err error) {
+		for i := 0; i < n; i++ {
+			if err = yield(1); err != nil {
 				break
 			}
 		}

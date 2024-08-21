@@ -188,15 +188,16 @@ func pipeCtx[T any](ctx context.Context, src Gen[T], yield func(T) error) error 
 
 // Parallel constructs a stage function that invokes the given stage from n
 // goroutines in parallel. The value of n has the upper bound of 100 * runtime.NumCPU().
-// Zero or negative value of n corresponds to runtime.NumCPU().
+// Zero or negative value of n corresponds to runtime.NumCPU(). This stage does not
+// preserve the order of data items.
 func Parallel[T, U any](n int, stage Stage[T, U]) Stage[T, U] {
 	return ParallelCtx(context.Background(), n, stage)
 }
 
-// Parallel constructs a stage function that invokes the given stage from n
+// ParallelCtx constructs a stage function that invokes the given stage from n
 // goroutines in parallel, under control of the given context. The value of n has
 // the upper bound of 100 * runtime.NumCPU(). Zero or negative value of n corresponds
-// to runtime.NumCPU().
+// to runtime.NumCPU(). This stage does not preserve the order of data items.
 func ParallelCtx[T, U any](ctx context.Context, n int, stage Stage[T, U]) Stage[T, U] {
 	// ensure realistic value for n
 	np := runtime.NumCPU()
