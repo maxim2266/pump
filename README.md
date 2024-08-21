@@ -63,6 +63,34 @@ func increment(src Gen[int], yield func(int) error) error {
 ```
 Just as a note, the library provides a more succinct way of defining such a simple stage (see below).
 
+The signature of the stage function is designed to allow for full control over when and how
+the source generator is invoked. For example, suppose we want to have a pipeline stage where
+processing of each input item involves database queries, and we also want to establish a
+database connection before the iteration, and close it afterwards. This can be achieved using
+the following stage function (for some already defined types T and U):
+```Go
+func process(src pump.Gen[T], yield func(U) error) error {
+    conn, err := connectToDatabase()
+
+    if err != nil {
+        return err
+    }
+
+    defer conn.Close()
+
+    return src(func(item T) error { // this actually invokes the source generator
+        // produce a result of type U
+        result, err := produceResult(item, conn)
+
+        if err != nil {
+            return err
+        }
+
+        // pass the result further down the pipeline
+        return yield(result)
+    })
+}
+```
 The rest of the library is essentially about constructing and composing stages. Multiple stages
 can be composed into one using `Chain*` family of functions, for example:
 ```Go

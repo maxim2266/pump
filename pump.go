@@ -122,8 +122,6 @@ function (for some already defined types T and U):
 			return yield(result)
 		})
 	}
-
-For more complex use cases Sink interface can be implemented and utilised with Run/RunPipe functions.
 */
 type Stage[T, U any] func(Gen[T], func(U) error) error
 
