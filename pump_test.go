@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,7 +37,7 @@ func TestChain(t *testing.T) {
 		increment,
 	)
 
-	err := pipe(fromSlice(data[:]), func(x int) error {
+	err := pipe(FromSeq(slices.Values(data[:])), func(x int) error {
 		if x != data[i].out {
 			return fmt.Errorf("[%d] unexpected value: %d instead of %d", i, x, data[i].out)
 		}
@@ -87,9 +88,9 @@ func TestPipe(t *testing.T) {
 	for i, stage := range stages {
 		failed := false
 		n := 0
-		src := From(Bind(intRange(N), stage))
+		it := Iter(Bind(intRange(N), stage))
 
-		for x := range src.All {
+		for x := range it.All {
 			if failed {
 				panic(fmt.Sprintf("[%d] double fault", i))
 			}
@@ -107,8 +108,8 @@ func TestPipe(t *testing.T) {
 			n++
 		}
 
-		if src.Err != nil {
-			t.Errorf("[%d] %s", i, src.Err)
+		if it.Err != nil {
+			t.Errorf("[%d] %s", i, it.Err)
 			return
 		}
 
@@ -174,14 +175,14 @@ func TestParallel(t *testing.T) {
 
 	for no, stage := range stages {
 		res = res[:0]
-		src := From(Bind(intRange(N), stage))
+		it := Iter(Bind(intRange(N), stage))
 
-		for x := range src.All {
+		for x := range it.All {
 			res = append(res, x)
 		}
 
-		if src.Err != nil {
-			t.Errorf("[%d] %s", no, src.Err)
+		if it.Err != nil {
+			t.Errorf("[%d] %s", no, it.Err)
 			return
 		}
 
@@ -219,16 +220,16 @@ func TestEarlyExit(t *testing.T) {
 
 	for i, gen := range sources {
 		count := 0
-		src := From(gen)
+		it := Iter(gen)
 
-		for x := range src.All {
+		for x := range it.All {
 			if count += x; count == M {
 				break
 			}
 		}
 
-		if src.Err != nil {
-			t.Errorf("[%d] unexpected error: %s", i, src.Err)
+		if it.Err != nil {
+			t.Errorf("[%d] unexpected error: %s", i, it.Err)
 			return
 		}
 
@@ -236,18 +237,6 @@ func TestEarlyExit(t *testing.T) {
 			t.Errorf("[%d] unexpected value: %d instead of %d", i, count, M)
 			return
 		}
-	}
-}
-
-func fromSlice[T any](src []T) Gen[T] {
-	return func(yield func(T) error) (err error) {
-		for _, s := range src {
-			if err = yield(s); err != nil {
-				break
-			}
-		}
-
-		return
 	}
 }
 
@@ -296,19 +285,19 @@ func testStageErr(t *testing.T, stage Stage[string, int]) {
 	for n, errInd := 0, rand.Int()%N; n < M; n, errInd = n+1, rand.Int()%N {
 		data[errInd] = "?"
 
-		src := From(Bind(fromSlice(data), stage))
+		it := Iter(Bind(FromSlice(data), stage))
 
-		for range src.All {
+		for range it.All {
 			// do nothing
 		}
 
-		if src.Err == nil {
+		if it.Err == nil {
 			t.Errorf("[%d] missing error", errInd)
 			return
 		}
 
-		if src.Err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
-			t.Errorf("[%d] unexpected error: %s", errInd, src.Err)
+		if it.Err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
+			t.Errorf("[%d] unexpected error: %s", errInd, it.Err)
 			return
 		}
 
@@ -328,18 +317,18 @@ func BenchmarkRangeFunc(b *testing.B) {
 	}
 
 	sum := 0
-	src := From(Bind(fromSlice(buff), pass))
+	it := Iter(Bind(FromSlice(buff), pass))
 
 	b.ResetTimer()
 
-	for x := range src.All {
+	for x := range it.All {
 		sum += x
 	}
 
 	b.StopTimer()
 
-	if src.Err != nil {
-		b.Error(src.Err)
+	if it.Err != nil {
+		b.Error(it.Err)
 		return
 	}
 
@@ -368,7 +357,7 @@ func bench(b *testing.B, stage Stage[int, int]) {
 
 	b.ResetTimer()
 
-	err := stage(fromSlice(buff), func(x int) error {
+	err := stage(FromSlice(buff), func(x int) error {
 		sum += x
 		return nil
 	})
@@ -394,18 +383,6 @@ func Example() {
 	// input data
 	data := []string{" 123 ", " 321 ", " ", "-42"}
 
-	// input data generator
-	src := func(yield func(string) error) (err error) {
-		// call "yield" for each string from "data" array
-		for _, s := range data {
-			if err = yield(s); err != nil {
-				break
-			}
-		}
-
-		return
-	}
-
 	// pipeline (may also be composed statically, or as a function of configuration)
 	pipe := Chain4(
 		// trim whitespace
@@ -419,7 +396,7 @@ func Example() {
 	)
 
 	// run the pipeline
-	err := pipe(src, func(x int) (e error) {
+	err := pipe(FromSlice(data), func(x int) (e error) {
 		// just print the value
 		_, e = fmt.Println(x)
 		return

@@ -45,7 +45,9 @@ func fromSlice[T any](src []T) Gen[T] {
     }
 }
 ```
-In practice generators are more likely to source data from files, sockets, database queries, etc.
+_Note_: the library provides its own `FromSlice` function implementation. Also, in practice
+generators are more likely to read data from more complex sources, such as files, sockets,
+database queries, etc.
 
 The second type, `Stage`, is a function that is expected to invoke the given generator,
 process each data item of type `T` and possibly forward each result (of type `U`) to the given
@@ -99,7 +101,7 @@ pipe := Chain3(increment, times2, modulo5)
 Here we want to calculate `(2 * (x + 1)) % 5` for each integer `x`. The resulting `pipe` is a new
 stage function of type `func(Gen[int], func(int) error) error`, and it can be invoked like
 ```Go
-gen := fromSlice([]int{ 1, 2, 3 }) // input data generator
+gen := FromSlice([]int{ 1, 2, 3 }) // input data generator
 err := pipe(gen, func(x int) error {
     _, e := fmt.Println(x)
     return e
@@ -109,17 +111,17 @@ if err != nil { ... }
 ```
 Or, using for-range loop:
 ```Go
-gen := fromSlice([]int{ 1, 2, 3 }) // input data generator
-src := From(Bind(gen, pipe))       // iterator
+gen := FromSlice([]int{ 1, 2, 3 }) // input data generator
+it := Iter(Bind(gen, pipe))       // iterator
 
-for x := range src.All {
+for x := range it.All {
     if _, err := fmt.Println(x); err != nil {
         return err
     }
 }
 
-if src.Err != nil {
-    return src.Err
+if it.Err != nil {
+    return it.Err
 }
 ```
 _Side note_: ranging over a function may be giving a bit more convenient syntax, but in practice
