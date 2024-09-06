@@ -49,12 +49,12 @@ func Bind[T, U any](src Gen[T], stage Stage[T, U]) Gen[U] {
 }
 
 /*
-Seq is an iterator over the given generator. Its main purpose is to provide
+It is an iterator over the given generator. Its main purpose is to provide
 a function to range over using a for loop. Since the release of Go v1.23 everybody
-does range-over-function, so me too. Given some type T and a generator "gen" of type
+does range-over-function, so me too. Given some type T and a generator "src" of type
 Gen[T], we can then do:
 
-	it := Iter(gen)
+	it := pump.Iter(src)
 
 	for item := range it.All {
 		// process item
@@ -62,24 +62,24 @@ Gen[T], we can then do:
 
 	if it.Err != nil { ... }
 
-A generator like "gen" is typically constructed as some input generator bound
+A generator like "src" is typically constructed as some input generator bound
 to a processing stage using Bind() function.
 */
-type Seq[T any] struct {
+type It[T any] struct {
 	Err error // error returned from the pipeline
 	src Gen[T]
 }
 
 // Iter constructs a new iterator from the given generator function.
-func Iter[T any](src Gen[T]) Seq[T] {
-	return Seq[T]{src: src}
+func Iter[T any](src Gen[T]) It[T] {
+	return It[T]{src: src}
 }
 
 // All is the function to range over using a for loop.
-func (it *Seq[T]) All(yield func(T) bool) {
-	it.Err = it.src(func(item T) (e error) {
+func (it *It[T]) All(yield func(T) bool) {
+	it.Err = it.src(func(item T) (err error) {
 		if !yield(item) {
-			e = ErrStop
+			err = ErrStop
 		}
 
 		return
@@ -337,7 +337,7 @@ func toChan[T any](env *pipeEnv, ch chan<- T) func(T) error {
 var errPanic = errors.New("pipeline panicked")
 
 // ErrStop signals early exit from range over function loop. It is not stored in
-// Seq.Err, but within a stage function in some (probably, rare) situations it may be
+// It.Err, but within a stage function in some (probably, rare) situations it may be
 // treated as a special case.
 var ErrStop = errors.New("pipeline cancelled")
 

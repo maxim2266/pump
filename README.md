@@ -112,7 +112,7 @@ if err != nil { ... }
 Or, using for-range loop:
 ```Go
 gen := FromSlice([]int{ 1, 2, 3 }) // input data generator
-it := Iter(Bind(gen, pipe))       // iterator
+it := Iter(Bind(gen, pipe))        // iterator
 
 for x := range it.All {
     if _, err := fmt.Println(x); err != nil {
