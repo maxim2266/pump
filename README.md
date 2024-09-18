@@ -222,11 +222,11 @@ goos: linux
 goarch: amd64
 pkg: github.com/maxim2266/pump
 cpu: Intel(R) Core(TM) i5-8500T CPU @ 2.10GHz
-BenchmarkSimple-6      	621101976         1.942 ns/op
-BenchmarkRangeFunc-6   	264930876         4.554 ns/op
-BenchmarkPipe-6        	 9554814        123.3 ns/op
-BenchmarkParallel-6    	 3374488        340.0 ns/op
+BenchmarkSimple-6      	616850120	         2.195 ns/op
+BenchmarkRangeFunc-6   	259452792	         4.608 ns/op
+BenchmarkPipe-6        	 8047437	       168.5 ns/op
+BenchmarkParallel-6    	 2440783	       489.2 ns/op
 ```
 
 #### Project status
-Tested on several Linux Mint versions from 21.x range. Requires Go version 1.23 or higher.
+Tested on Linux Mint 22. Requires Go version 1.23 or higher.

@@ -2,12 +2,13 @@ package pump
 
 /*
 Lazy creates a stage that is lazily initialised via the given constructor function. The
-constructor gets called once upon every invocation of the stage before iteration start, and its
-main purpose is to initialise any internal state used in the iteration. Examples of the state
-are item counters, flags, caches, etc. Constructor receives a "yield" function as a parameter
-(essentially, a continuation), and is expected to return a callback function for the source
-generator. Here is an example of a constructor of the function that deduplicates data items
-(of some type Item) by their IDs:
+constructor is called once upon every invocation of the stage before the iteration starts. It
+receives a "yield" continuation function as a parameter, and is expected to return a callback
+function for the source generator. This arrangement allows for some internal state to be used
+during the iteration, and the constructor can create a fresh instance of the state upon each
+invocation of the stage. Examples of such internal state are item counters, flags, caches, etc.
+Here is an example of a constructor of the function that deduplicates data items (of some type
+Item) by their IDs:
 
 	func dedup(yield func(*Item) error) func(*Item) error {
 		// internal state: a set to detect duplicates
