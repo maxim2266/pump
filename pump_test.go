@@ -88,7 +88,7 @@ func TestPipe(t *testing.T) {
 	for i, stage := range stages {
 		failed := false
 		n := 0
-		it := Iter(Bind(intRange(N), stage))
+		it := Bind(intRange(N), stage).Iter()
 
 		for x := range it.All {
 			if failed {
@@ -175,7 +175,7 @@ func TestParallel(t *testing.T) {
 
 	for no, stage := range stages {
 		res = res[:0]
-		it := Iter(Bind(intRange(N), stage))
+		it := Bind(intRange(N), stage).Iter()
 
 		for x := range it.All {
 			res = append(res, x)
@@ -220,7 +220,7 @@ func TestEarlyExit(t *testing.T) {
 
 	for i, gen := range sources {
 		count := 0
-		it := Iter(gen)
+		it := gen.Iter()
 
 		for x := range it.All {
 			if count += x; count == M {
@@ -285,7 +285,7 @@ func testStageErr(t *testing.T, stage Stage[string, int]) {
 	for n, errInd := 0, rand.Int()%N; n < M; n, errInd = n+1, rand.Int()%N {
 		data[errInd] = "?"
 
-		it := Iter(Bind(FromSlice(data), stage))
+		it := Bind(FromSlice(data), stage).Iter()
 
 		for range it.All {
 			// do nothing
@@ -317,7 +317,7 @@ func BenchmarkRangeFunc(b *testing.B) {
 	}
 
 	sum := 0
-	it := Iter(Bind(FromSlice(buff), pass))
+	it := Bind(FromSlice(buff), pass).Iter()
 
 	b.ResetTimer()
 

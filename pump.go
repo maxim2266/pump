@@ -38,6 +38,11 @@ for all possible data sources. Also, there is one caveat: some generators can be
 */
 type Gen[T any] func(func(T) error) error
 
+// Iter constructs a new iterator from the given generator.
+func (src Gen[T]) Iter() It[T] {
+	return It[T]{src: src}
+}
+
 /*
 Bind takes an existing generator of some type T and returns a new generator of some type U that
 does T -> U conversion via the given stage function.
@@ -54,7 +59,7 @@ a function to range over using a for loop. Since the release of Go v1.23 everybo
 does range-over-function, so me too. Given some type T and a generator "src" of type
 Gen[T], we can then do:
 
-	it := pump.Iter(src)
+	it := src.Iter()
 
 	for item := range it.All {
 		// process item
@@ -68,11 +73,6 @@ to a processing stage using Bind() function.
 type It[T any] struct {
 	Err error // error returned from the pipeline
 	src Gen[T]
-}
-
-// Iter constructs a new iterator from the given generator function.
-func Iter[T any](src Gen[T]) It[T] {
-	return It[T]{src: src}
 }
 
 // All is the function to range over using a for loop.
