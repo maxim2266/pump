@@ -367,3 +367,16 @@ func FromSlice[S ~[]T, T any](src S) Gen[T] {
 		return
 	}
 }
+
+// All constructs a generator that invokes all the given generators one after another, in order.
+func All[T any](srcs ...Gen[T]) Gen[T] {
+	return func(yield func(T) error) (err error) {
+		for _, src := range srcs {
+			if err = src(yield); err != nil {
+				break
+			}
+		}
+
+		return
+	}
+}

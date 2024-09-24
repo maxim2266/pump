@@ -240,6 +240,33 @@ func TestEarlyExit(t *testing.T) {
 	}
 }
 
+func TestAll(t *testing.T) {
+	s1, s2 := [...]int{0, 1, 2}, [...]int{3, 4, 5}
+	count, n := 0, len(s1)+len(s2)
+
+	err := All(FromSlice(s1[:]), FromSlice(s2[:]))(func(x int) error {
+		if x != count {
+			return fmt.Errorf("unexpected value: %d instead of %d", x, count)
+		}
+
+		if count++; count > n {
+			return fmt.Errorf("unexpected call with value %d", x)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if count != n {
+		t.Errorf("unexpected number of calls: %d instead of %d", count, n)
+		return
+	}
+}
+
 func intRange(n int) Gen[int] {
 	return func(yield func(int) error) (err error) {
 		for i := 0; i < n; i++ {
