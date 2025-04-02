@@ -39,14 +39,14 @@ func Lazy[T, U any](create func(func(U) error) func(T) error) Stage[T, U] {
 	}
 }
 
-// Lazy1 does the same as Lazy, but with one additional parameter passed over to the constructor.
+// Lazy1 does the same as [Lazy], but with one additional parameter passed over to the constructor.
 func Lazy1[A, T, U any](arg A, create func(A, func(U) error) func(T) error) Stage[T, U] {
 	return func(src Gen[T], yield func(U) error) error {
 		return src(create(arg, yield))
 	}
 }
 
-// Lazy2 does the same as Lazy, but with two additional parameters passed over to the constructor.
+// Lazy2 does the same as [Lazy], but with two additional parameters passed over to the constructor.
 func Lazy2[A, B, T, U any](arg1 A, arg2 B, create func(A, B, func(U) error) func(T) error) Stage[T, U] {
 	return func(src Gen[T], yield func(U) error) error {
 		return src(create(arg1, arg2, yield))

@@ -68,7 +68,7 @@ Gen[T], we can then do:
 	if it.Err != nil { ... }
 
 A generator like "src" is typically constructed as some input generator bound
-to a processing stage using Bind() function.
+to a processing stage using [Bind] function.
 */
 type It[T any] struct {
 	Err error // error returned from the pipeline
@@ -189,18 +189,19 @@ func pipeCtx[T any](ctx context.Context, src Gen[T], yield func(T) error) error 
 
 // Parallel constructs a stage function that invokes the given stage from n
 // goroutines in parallel. The value of n has the upper bound of 100 * runtime.NumCPU().
-// Zero or negative value of n corresponds to runtime.NumCPU(). This stage does not
-// preserve the order of data items.
+// Zero or negative value of n sets the number of goroutines to the result of
+// calling [runtime.NumCPU]. This stage does not preserve the order of data items.
 func Parallel[T, U any](n int, stage Stage[T, U]) Stage[T, U] {
 	return ParallelCtx(context.Background(), n, stage)
 }
 
 // ParallelCtx constructs a stage function that invokes the given stage from n
 // goroutines in parallel, under control of the given context. The value of n has
-// the upper bound of 100 * runtime.NumCPU(). Zero or negative value of n corresponds
-// to runtime.NumCPU(). This stage does not preserve the order of data items.
+// the upper bound of 100 * runtime.NumCPU(). Zero or negative value of n sets the number
+// of goroutines to the result of calling [runtime.NumCPU]. This stage does not preserve
+// the order of data items.
 func ParallelCtx[T, U any](ctx context.Context, n int, stage Stage[T, U]) Stage[T, U] {
-	// ensure realistic value for n
+	// ensure a realistic value for n
 	np := runtime.NumCPU()
 
 	if n <= 0 {
@@ -355,7 +356,8 @@ func FromSeq[T any](src iter.Seq[T]) Gen[T] {
 }
 
 // FromSlice constructs a generator that reads data from the given slice, in order.
-// In Go v1.23 it saves a few nanoseconds per iteration when compared to FromSeq(slices.Values(src)).
+// In Go v1.23 it saves a few nanoseconds per iteration when compared to
+// FromSeq(slices.Values(src)).
 func FromSlice[S ~[]T, T any](src S) Gen[T] {
 	return func(yield func(T) error) (err error) {
 		for _, item := range src {
