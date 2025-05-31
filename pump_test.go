@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestChain(t *testing.T) {
@@ -129,7 +130,7 @@ func TestPipeErr2(t *testing.T) {
 }
 
 func TestParallel(t *testing.T) {
-	const N = 10000
+	const N = 3000
 
 	atoi := MapE(strconv.Atoi)
 	itoa := Map(strconv.Itoa)
@@ -139,6 +140,19 @@ func TestParallel(t *testing.T) {
 		Chain3(
 			itoa,
 			Parallel(0, atoi),
+			even,
+		),
+
+		Chain4(
+			itoa,
+			Parallel(0, atoi),
+			even,
+			delay,
+		),
+
+		Chain3(
+			itoa,
+			Parallel(0, Chain2(delay, atoi)),
 			even,
 		),
 
@@ -193,7 +207,7 @@ func TestParallel(t *testing.T) {
 
 		sort.Ints(res)
 
-		for i := 0; i < len(res); i++ {
+		for i := range len(res) {
 			if res[i] != 2*i {
 				t.Errorf("[%d] unexpected value at %d: %d instead of %d", no, i, res[i], 2*i)
 				return
@@ -215,7 +229,9 @@ func TestEarlyExit(t *testing.T) {
 	sources := [...]Gen[int]{
 		genOnes(N),
 		Bind(genOnes(N), Pipe),
+		Bind(genOnes(N), Chain2(Pipe, delay[int])),
 		Bind(genOnes(N), Parallel(0, pass)),
+		Bind(genOnes(N), Parallel(0, delay[int])),
 	}
 
 	for i, gen := range sources {
@@ -269,7 +285,7 @@ func TestAll(t *testing.T) {
 
 func intRange(n int) Gen[int] {
 	return func(yield func(int) error) (err error) {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if err = yield(i); err != nil {
 				break
 			}
@@ -281,7 +297,7 @@ func intRange(n int) Gen[int] {
 
 func genOnes(n int) Gen[int] {
 	return func(yield func(int) error) (err error) {
-		for i := 0; i < n; i++ {
+		for range n {
 			if err = yield(1); err != nil {
 				break
 			}
@@ -305,7 +321,7 @@ func testStageErr(t *testing.T, stage Stage[string, int]) {
 
 	data := make([]string, N)
 
-	for i := 0; i < N; i++ {
+	for i := range N {
 		data[i] = strconv.Itoa(i)
 	}
 
@@ -404,6 +420,13 @@ func bench(b *testing.B, stage Stage[int, int]) {
 
 func pass(src Gen[int], yield func(int) error) error {
 	return src(yield)
+}
+
+func delay[T any](src Gen[T], yield func(T) error) error {
+	return src(func(x T) error {
+		time.Sleep(time.Millisecond)
+		return yield(x)
+	})
 }
 
 func Example() {
