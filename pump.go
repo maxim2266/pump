@@ -237,6 +237,12 @@ func ParallelCtx[T, U any](ctx context.Context, n int, stage Stage[T, U]) Stage[
 							close(collector)
 						}
 
+						// avoid calling wg.Done on panic
+						// see https://github.com/golang/go/issues/74702
+						if p := recover(); p != nil {
+							panic(p)
+						}
+
 						env.wg.Done()
 					}()
 
@@ -303,6 +309,13 @@ func startFeeder[T any](env *pipeEnv, src Gen[T]) <-chan T {
 	go func() {
 		defer func() {
 			close(feeder)
+
+			// avoid calling wg.Done on panic
+			// see https://github.com/golang/go/issues/74702
+			if p := recover(); p != nil {
+				panic(p)
+			}
+
 			env.wg.Done()
 		}()
 
