@@ -325,7 +325,9 @@ func testStageErr(t *testing.T, stage Stage[string, int]) {
 		data[i] = strconv.Itoa(i)
 	}
 
-	for n, errInd := 0, rand.Int()%N; n < M; n, errInd = n+1, rand.Int()%N {
+	for i := range M {
+		errInd := rand.Int() % N
+
 		data[errInd] = "?"
 
 		it := Bind(FromSlice(data), stage).Iter()
@@ -335,12 +337,12 @@ func testStageErr(t *testing.T, stage Stage[string, int]) {
 		}
 
 		if it.Err == nil {
-			t.Errorf("[%d] missing error", errInd)
+			t.Errorf("[%d @ %d] missing error", i, errInd)
 			return
 		}
 
 		if it.Err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
-			t.Errorf("[%d] unexpected error: %s", errInd, it.Err)
+			t.Errorf("[%d @ %d] unexpected error: %s", i, errInd, it.Err)
 			return
 		}
 

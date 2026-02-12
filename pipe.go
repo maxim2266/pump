@@ -2,9 +2,7 @@ package pump
 
 import (
 	"context"
-	"errors"
 	"runtime"
-	"sync"
 	"sync/atomic"
 )
 
@@ -21,14 +19,17 @@ func PipeCtx[T any](ctx context.Context) Stage[T, T] {
 	}
 }
 
-// capacity of the channel between pipe stages
-const chanCap = 32
-
-// pipe implementation
+// pipe stage implementation
 func pipeCtx[T any](ctx context.Context, src Gen[T], yield func(T) error) error {
-	return execInCtx(ctx, func(env *pipeEnv) error {
-		return readChan(startFeeder(env, src), yield)
-	})
+	// context
+	ctx, cancel := context.WithCancelCause(ctx)
+
+	defer cancel(nil)
+
+	// reader loop
+	pumpChan(feed(ctx, cancel, src), cancel, yield)
+
+	return context.Cause(ctx)
 }
 
 // Parallel constructs a stage function that invokes the given stage from n
@@ -56,140 +57,119 @@ func ParallelCtx[T, U any](ctx context.Context, n int, stage Stage[T, U]) Stage[
 
 	// the stage
 	return func(src Gen[T], yield func(U) error) error {
-		return execInCtx(ctx, func(env *pipeEnv) error {
-			// feeder channel
-			feeder := startFeeder(env, src)
+		// context
+		ctx, cancel := context.WithCancelCause(ctx)
 
-			// generator from feeder
-			gen := func(fn func(T) error) error { return readChan(feeder, fn) }
+		defer cancel(nil)
 
-			// collector channel
-			collector := make(chan U, chanCap)
+		// feeder
+		chin := feed(ctx, cancel, src)
 
-			// collector sink
-			sink := toChan(env, collector)
+		// output channel
+		chout := make(chan U, chanCap)
+		count := int32(n)
 
-			// start workers
-			refCount := int32(n)
-
-			env.wg.Add(n)
-
-			for i := 0; i < n; i++ {
-				go func() {
-					defer func() {
-						if atomic.AddInt32(&refCount, -1) == 0 {
-							close(collector)
-						}
-
-						// avoid calling wg.Done on panic
-						// see https://github.com/golang/go/issues/74702
-						if p := recover(); p != nil {
-							panic(p)
-						}
-
-						env.wg.Done()
-					}()
-
-					env.safe(stage(gen, sink))
-				}()
+		// generator from channel
+		gen := func(fn func(T) error) (err error) {
+			for x := range chin {
+				if err = fn(x); err != nil {
+					break
+				}
 			}
 
-			// run
-			return readChan(collector, yield)
-		})
-	}
-}
-
-// synchronisation pack for pipes
-type pipeEnv struct {
-	ctx    context.Context
-	cancel context.CancelCauseFunc
-	wg     sync.WaitGroup
-}
-
-// error checking
-func (env *pipeEnv) safe(err error) {
-	if err != nil {
-		env.cancel(err)
-	}
-}
-
-// create pipe environment and run the given function in it
-func execInCtx(ctx context.Context, fn func(*pipeEnv) error) error {
-	// environment
-	var env pipeEnv
-
-	// context
-	env.ctx, env.cancel = context.WithCancelCause(ctx)
-
-	// cancel the context upon completion
-	defer func() {
-		if p := recover(); p != nil {
-			env.cancel(errPanic)
-			panic(p)
+			return
 		}
 
-		env.cancel(nil)
-	}()
+		// channel writer
+		sink := chanSink(ctx, chout)
 
-	// run
-	env.safe(fn(&env))
+		// workers
+		for _ = range n {
+			go func() {
+				defer func() {
+					// we don't want to close the channel on panic, because
+					// that would allow for the reader loop to complete while
+					// the panic is still in progress
+					if p := recover(); p != nil {
+						panic(p)
+					}
 
-	// wait for all threads to terminate
-	env.wg.Wait()
+					// the last to exit closes the channel
+					if atomic.AddInt32(&count, -1) == 0 {
+						close(chout)
+					}
+				}()
 
-	// all done
-	return context.Cause(env.ctx)
+				if err := stage(gen, sink); err != nil {
+					// cancelled context ignores other cancellations
+					cancel(err)
+					drainChan(chin)
+				}
+			}()
+		}
+
+		// reader loop
+		pumpChan(chout, cancel, yield)
+
+		return context.Cause(ctx)
+	}
 }
 
-// start feeder thread
-func startFeeder[T any](env *pipeEnv, src Gen[T]) <-chan T {
-	// feeder channel
-	feeder := make(chan T, chanCap)
+// start feeder and return the reader channel
+func feed[T any](ctx context.Context, cancel func(error), src Gen[T]) <-chan T {
+	// channel
+	pipe := make(chan T, chanCap)
 
-	// start feeder thread
-	env.wg.Add(1)
-
+	// feeder
 	go func() {
 		defer func() {
-			close(feeder)
-
-			// avoid calling wg.Done on panic
-			// see https://github.com/golang/go/issues/74702
+			// we don't want to close the channel on panic, because
+			// that would allow for the reader loop to complete while
+			// the panic is still in progress
 			if p := recover(); p != nil {
 				panic(p)
 			}
 
-			env.wg.Done()
+			close(pipe)
 		}()
 
-		env.safe(src(toChan(env, feeder)))
+		if err := src(chanSink(ctx, pipe)); err != nil {
+			// cancelled context ignores other cancellations
+			cancel(err)
+		}
 	}()
 
-	return feeder
+	return pipe
 }
 
-// yield from the channel
-func readChan[T any](ch <-chan T, yield func(T) error) (err error) {
-	for item := range ch {
-		if err = yield(item); err != nil {
+// make a yield function that writes to the channel
+func chanSink[T any](ctx context.Context, dest chan<- T) func(T) error {
+	return func(x T) error {
+		select {
+		case dest <- x:
+			return nil
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		}
+	}
+}
+
+func pumpChan[T any](src <-chan T, cancel func(error), yield func(T) error) {
+	// reader loop
+	for x := range src {
+		if err := yield(x); err != nil {
+			cancel(err)
+			drainChan(src)
 			break
 		}
 	}
-
-	return
 }
 
-// construct function that yields to the channel
-func toChan[T any](env *pipeEnv, ch chan<- T) func(T) error {
-	return func(item T) error {
-		select {
-		case ch <- item:
-			return nil
-		case <-env.ctx.Done():
-			return env.ctx.Err()
-		}
+func drainChan[T any](ch <-chan T) {
+	for _ = range ch {
+		// do nothing
 	}
 }
 
-var errPanic = errors.New("pipeline panicked")
+// capacity of the channel between pipe stages
+const chanCap = 32
