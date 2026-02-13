@@ -89,9 +89,10 @@ func TestPipe(t *testing.T) {
 	for i, stage := range stages {
 		failed := false
 		n := 0
-		it := Bind(intRange(N), stage).Iter()
 
-		for x := range it.All {
+		var err error
+
+		for x := range Bind(intRange(N), stage).All(&err) {
 			if failed {
 				panic(fmt.Sprintf("[%d] double fault", i))
 			}
@@ -106,11 +107,16 @@ func TestPipe(t *testing.T) {
 				return
 			}
 
+			if failed = err != nil; failed {
+				t.Errorf("[%d] unexpected error (1): %s", i, err)
+				return
+			}
+
 			n++
 		}
 
-		if it.Err != nil {
-			t.Errorf("[%d] %s", i, it.Err)
+		if err != nil {
+			t.Errorf("[%d] unexpected error (2): %s", i, err)
 			return
 		}
 
@@ -188,15 +194,16 @@ func TestParallel(t *testing.T) {
 	res := make([]int, 0, N/2)
 
 	for no, stage := range stages {
-		res = res[:0]
-		it := Bind(intRange(N), stage).Iter()
+		var err error
 
-		for x := range it.All {
+		res = res[:0]
+
+		for x := range Bind(intRange(N), stage).All(&err) {
 			res = append(res, x)
 		}
 
-		if it.Err != nil {
-			t.Errorf("[%d] %s", no, it.Err)
+		if err != nil {
+			t.Errorf("[%d] %s", no, err)
 			return
 		}
 
@@ -235,17 +242,18 @@ func TestEarlyExit(t *testing.T) {
 	}
 
 	for i, gen := range sources {
-		count := 0
-		it := gen.Iter()
+		var err error
 
-		for x := range it.All {
+		count := 0
+
+		for x := range gen.All(&err) {
 			if count += x; count == M {
 				break
 			}
 		}
 
-		if it.Err != nil {
-			t.Errorf("[%d] unexpected error: %s", i, it.Err)
+		if err != nil {
+			t.Errorf("[%d] unexpected error: %s", i, err)
 			return
 		}
 
@@ -326,23 +334,23 @@ func testStageErr(t *testing.T, stage Stage[string, int]) {
 	}
 
 	for i := range M {
+		var err error
+
 		errInd := rand.Int() % N
 
 		data[errInd] = "?"
 
-		it := Bind(FromSlice(data), stage).Iter()
-
-		for range it.All {
+		for range Bind(FromSlice(data), stage).All(&err) {
 			// do nothing
 		}
 
-		if it.Err == nil {
+		if err == nil {
 			t.Errorf("[%d @ %d] missing error", i, errInd)
 			return
 		}
 
-		if it.Err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
-			t.Errorf("[%d @ %d] unexpected error: %s", i, errInd, it.Err)
+		if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
+			t.Errorf("[%d @ %d] unexpected error: %s", i, errInd, err)
 			return
 		}
 
@@ -355,25 +363,30 @@ func BenchmarkSimple(b *testing.B) {
 }
 
 func BenchmarkRangeFunc(b *testing.B) {
-	buff := make([]int, b.N)
+	gen := func(yield func(int) error) (err error) {
+		for i := range b.N {
+			if err = yield(i & 1); err != nil {
+				break
+			}
+		}
 
-	for i := range buff {
-		buff[i] = i & 1
+		return
 	}
 
 	sum := 0
-	it := Bind(FromSlice(buff), pass).Iter()
+
+	var err error
 
 	b.ResetTimer()
 
-	for x := range it.All {
+	for x := range Bind(gen, pass).All(&err) {
 		sum += x
 	}
 
 	b.StopTimer()
 
-	if it.Err != nil {
-		b.Error(it.Err)
+	if err != nil {
+		b.Error(err)
 		return
 	}
 
@@ -392,17 +405,21 @@ func BenchmarkParallel(b *testing.B) {
 }
 
 func bench(b *testing.B, stage Stage[int, int]) {
-	buff := make([]int, b.N)
+	gen := func(yield func(int) error) (err error) {
+		for i := range b.N {
+			if err = yield(i & 1); err != nil {
+				break
+			}
+		}
 
-	for i := range buff {
-		buff[i] = i & 1
+		return
 	}
 
 	sum := 0
 
 	b.ResetTimer()
 
-	err := stage(FromSlice(buff), func(x int) error {
+	err := stage(gen, func(x int) error {
 		sum += x
 		return nil
 	})

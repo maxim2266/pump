@@ -27,62 +27,41 @@ import (
 /*
 Gen is a generic push iterator, or a generator. When invoked with a user-provided callback, it
 is expected to iterate its data source invoking the callback once per each data item. It is also
-expected to stop on the first error either from the callback, or stumbled over internally. It is up
-to the user to develop their own generators, because it's not possible to provide a generic code
-for all possible data sources. Also, there is one caveat: some generators can be run only once
-(for example, those sourcing data from a socket), so please structure your code accordingly.
+expected to stop on the first error either from the callback, or stumbled over internally. It is
+up to the user to develop their own generators, because it's not possible to provide a generic
+code for all possible data sources. Also, some generators can be invoked only once (for example,
+those sourcing data from a socket), so please structure your code accordingly.
 */
 type Gen[T any] func(func(T) error) error
 
-// Iter constructs a new iterator from the given generator.
-func (src Gen[T]) Iter() It[T] {
-	return It[T]{src: src}
+// All creates an iterator function for the given generator. Any error encountered during
+// the iteration will be stored at the given error object.
+func (src Gen[T]) All(pe *error) iter.Seq[T] {
+	return func(yield func(T) bool) {
+		*pe = src(func(x T) (err error) {
+			if !yield(x) { // panics if the generator fails to stop on the first error
+				err = ErrStop
+			}
+
+			return
+		})
+
+		if errors.Is(*pe, ErrStop) {
+			*pe = nil
+		}
+	}
 }
 
-/*
-Bind takes an existing generator of some type T and returns a new generator of some type U that
-does T -> U conversion via the given stage function.
-*/
+// ErrStop signals early exit from range over function loop. It is not returned from
+// for-range iterator, but within a stage function it may in some (probably, rare)
+// situations be treated as a special case.
+var ErrStop = errors.New("pipeline cancelled")
+
+// Bind takes an existing generator of some type T and returns a new generator of some type U
+// that does T -> U conversion via the given stage function.
 func Bind[T, U any](src Gen[T], stage Stage[T, U]) Gen[U] {
 	return func(yield func(U) error) error {
 		return stage(src, yield)
-	}
-}
-
-/*
-It is an iterator over the given generator. Its main purpose is to provide
-a function to range over using a for loop. Since the release of Go v1.23 everybody
-does range-over-function, so me too. Given some type T and a generator "src" of type
-Gen[T], we can then do:
-
-	it := src.Iter()
-
-	for item := range it.All {
-		// process item
-	}
-
-	if it.Err != nil { ... }
-
-A generator like "src" is typically constructed as some input generator bound
-to a processing stage using [Bind] function.
-*/
-type It[T any] struct {
-	Err error // error returned from the pipeline
-	src Gen[T]
-}
-
-// All is the function to range over using a for loop.
-func (it *It[T]) All(yield func(T) bool) {
-	it.Err = it.src(func(item T) (err error) {
-		if !yield(item) {
-			err = ErrStop
-		}
-
-		return
-	})
-
-	if errors.Is(it.Err, ErrStop) {
-		it.Err = nil
 	}
 }
 
@@ -159,11 +138,6 @@ func MapE[T, U any](fn func(T) (U, error)) Stage[T, U] {
 		})
 	}
 }
-
-// ErrStop signals early exit from range over function loop. It is not stored in
-// It.Err, but within a stage function in some (probably, rare) situations it may be
-// treated as a special case.
-var ErrStop = errors.New("pipeline cancelled")
 
 // FromSeq constructs a generator from the given iterator.
 func FromSeq[T any](src iter.Seq[T]) Gen[T] {

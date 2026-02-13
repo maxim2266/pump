@@ -63,13 +63,13 @@ func increment(src Gen[int], yield func(int) error) error {
     })
 }
 ```
-Just as a note, the library provides a more succinct way of defining such a simple stage (see below).
+As a note, the library provides a more succinct way of defining such a simple stage (see below).
 
 The signature of the stage function is designed to allow for full control over when and how
 the source generator is invoked. For example, suppose we want to have a pipeline stage where
 processing of each input item involves database queries, and we also want to establish a
 database connection before the iteration, and close it afterwards. This can be achieved using
-the following stage function (for some already defined types T and U):
+the following stage function (for some already defined types `T` and `U`):
 ```Go
 func process(src pump.Gen[T], yield func(U) error) error {
     conn, err := connectToDatabase()
@@ -98,8 +98,7 @@ can be composed into one using `Chain*` family of functions, for example:
 ```Go
 pipe := Chain3(increment, times2, modulo5)
 ```
-Here we want to calculate `(2 * (x + 1)) % 5` for each integer `x`. The resulting `pipe` is a new
-stage function of type `func(Gen[int], func(int) error) error`, and it can be invoked like
+Given a suitable generator, a pipe can be invoked directly:
 ```Go
 gen := FromSlice([]int{ 1, 2, 3 }) // input data generator
 err := pipe(gen, func(x int) error {
@@ -109,23 +108,20 @@ err := pipe(gen, func(x int) error {
 
 if err != nil { ... }
 ```
-Or, using for-range loop:
+Or it can be used in a for-range loop:
 ```Go
-gen := FromSlice([]int{ 1, 2, 3 }) // input data generator
-it := Bind(gen, pipe).Iter()       // iterator
+it := Bind(FromSlice([]int{ 1, 2, 3 }), pipe)
 
-for x := range it.All {
-    if _, err := fmt.Println(x); err != nil {
-        return err
-    }
+var err error
+
+sum := 0
+
+for x := range it.All(&err) {
+    sum += x
 }
 
-if it.Err != nil {
-    return it.Err
-}
+if err != nil { ... }
 ```
-_Side note_: ranging over a function may be giving a bit more convenient syntax, but in practice
-it often results in more verbose error handling code.
 
 To assist with writing simple stage functions (like `increment` above) the library provides
 a number of constructors, for example:
@@ -206,27 +202,26 @@ _Note_: `Parallel` stage does not preserve the order of data items.
 In general, pipelines can be assembled either statically (i.e., when `pipe` is literally
 a static variable), or dynamically, for example, as a function of configuration. Also,
 separation between processing stages and their composition often reduces the number of
-modifications we have to make to the code when requirements change.
+code modifications required to implement new requirements.
 
 #### Benchmarks
 All benchmarks below simply pump integers through stages with no processing at all, thus only
-measuring the overhead associated with running stages themselves. The first benchmark (the
-simplest pass-through stage) shows a very small overhead probably due to compiler optimisations,
-but that also highlights the fact that the iteration itself is generally quite efficient. Using
-for-range loop (second benchmark) gives a constant overhead of just a few nanoseconds per
-iteration. Benchmarks for `Pipe` and `Parallel` stages show higher overhead because of the Go
-channels used internally (one channel for `Pipe` stage, and two for `Parallel`).
+measuring the overhead associated with running stages themselves. The first two benchmarks show
+that the iteration is generally quite efficient, especially using "for-range" loop. Results
+for `Pipe` and `Parallel` stages show higher overhead because of the Go channels used internally
+(one channel for `Pipe` stage, and two for `Parallel`).
 ```
 ▶ go test -bench .
 goos: linux
 goarch: amd64
 pkg: github.com/maxim2266/pump
 cpu: Intel(R) Core(TM) i5-8500T CPU @ 2.10GHz
-BenchmarkSimple-6      	616850120	         2.195 ns/op
-BenchmarkRangeFunc-6   	259452792	         4.608 ns/op
-BenchmarkPipe-6        	 8047437	       168.5 ns/op
-BenchmarkParallel-6    	 2440783	       489.2 ns/op
+BenchmarkSimple-6       569701723         1.762 ns/op
+BenchmarkRangeFunc-6    1000000000        0.6012 ns/op
+BenchmarkPipe-6          8063908        162.3 ns/op
+BenchmarkParallel-6      2313631        516.6 ns/op
 ```
+The numbers are obtained with Go compiler version 1.26.0 on Linux Mint 22.3.
 
-#### Project status
-Tested on Linux Mint 22. Requires Go version 1.23 or higher.
+#### License
+BSD-3-Clause
