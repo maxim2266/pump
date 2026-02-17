@@ -34,20 +34,20 @@ those sourcing data from a socket), so please structure your code accordingly.
 */
 type Gen[T any] func(func(T) error) error
 
-// All creates an iterator function for the given generator. Any error encountered during
+// All creates a for-range iterator from the given generator. Any error encountered during
 // the iteration will be stored at the given error object.
 func (src Gen[T]) All(pe *error) iter.Seq[T] {
 	return func(yield func(T) bool) {
-		*pe = src(func(x T) (err error) {
+		err := src(func(x T) (e error) {
 			if !yield(x) { // panics if the generator fails to stop on the first error
-				err = ErrStop
+				e = ErrStop
 			}
 
 			return
 		})
 
-		if errors.Is(*pe, ErrStop) {
-			*pe = nil
+		if !errors.Is(err, ErrStop) {
+			*pe = err
 		}
 	}
 }
@@ -167,8 +167,9 @@ func FromSlice[S ~[]T, T any](src S) Gen[T] {
 	}
 }
 
-// All constructs a generator that invokes all the given generators one after another, in order.
-func All[T any](srcs ...Gen[T]) Gen[T] {
+// FromAll constructs a generator that invokes all the given generators one after another,
+// in order.
+func FromAll[T any](srcs ...Gen[T]) Gen[T] {
 	return func(yield func(T) error) (err error) {
 		for _, src := range srcs {
 			if err = src(yield); err != nil {

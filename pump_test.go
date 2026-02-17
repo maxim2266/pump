@@ -264,11 +264,11 @@ func TestEarlyExit(t *testing.T) {
 	}
 }
 
-func TestAll(t *testing.T) {
+func TestFromAll(t *testing.T) {
 	s1, s2 := [...]int{0, 1, 2}, [...]int{3, 4, 5}
 	count, n := 0, len(s1)+len(s2)
 
-	err := All(FromSlice(s1[:]), FromSlice(s2[:]))(func(x int) error {
+	err := FromAll(FromSlice(s1[:]), FromSlice(s2[:]))(func(x int) error {
 		if x != count {
 			return fmt.Errorf("unexpected value: %d instead of %d", x, count)
 		}
