@@ -84,26 +84,17 @@ func ParallelCtx[T, U any](ctx context.Context, n int, stage Stage[T, U]) Stage[
 		sink := chanSink(ctx, chout)
 
 		// workers
-		for _ = range n {
+		for range n {
 			go func() {
-				defer func() {
-					// we don't want to close the channel on panic, because
-					// that would allow for the reader loop to complete while
-					// the panic is still in progress
-					if p := recover(); p != nil {
-						panic(p)
-					}
-
-					// the last to exit closes the channel
-					if atomic.AddInt32(&count, -1) == 0 {
-						close(chout)
-					}
-				}()
-
 				if err := stage(gen, sink); err != nil {
 					// cancelled context ignores other cancellations
 					cancel(err)
 					drainChan(chin)
+				}
+
+				// the last to exit closes the channel
+				if atomic.AddInt32(&count, -1) == 0 {
+					close(chout)
 				}
 			}()
 		}
@@ -122,21 +113,15 @@ func feed[T any](ctx context.Context, cancel func(error), src Gen[T]) <-chan T {
 
 	// feeder
 	go func() {
-		defer func() {
-			// we don't want to close the channel on panic, because
-			// that would allow for the reader loop to complete while
-			// the panic is still in progress
-			if p := recover(); p != nil {
-				panic(p)
-			}
-
-			close(pipe)
-		}()
-
 		if err := src(chanSink(ctx, pipe)); err != nil {
 			// cancelled context ignores other cancellations
 			cancel(err)
 		}
+
+		// we don't want to close the channel on panic, because
+		// that would allow for the reader loop to complete while
+		// the panic is still in progress
+		close(pipe)
 	}()
 
 	return pipe
@@ -166,7 +151,7 @@ func pumpChan[T any](src <-chan T, cancel func(error), yield func(T) error) {
 }
 
 func drainChan[T any](ch <-chan T) {
-	for _ = range ch {
+	for range ch {
 		// do nothing
 	}
 }
