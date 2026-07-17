@@ -204,9 +204,9 @@ goos: linux
 goarch: amd64
 pkg: github.com/maxim2266/pump
 cpu: Intel(R) Core(TM) i5-8500T CPU @ 2.10GHz
-BenchmarkSimple-6       621940492                1.764 ns/op
-BenchmarkPipe-6          8738133               135.5 ns/op
-BenchmarkParallel-6      2225258               500.3 ns/op
+BenchmarkSimple-6       604767002          1.776 ns/op
+BenchmarkPipe-6          9275784         132.3 ns/op
+BenchmarkParallel-6      2338774         522.7 ns/op
 ```
 The numbers are obtained with Go compiler version 1.26.4 on Linux Mint 22.3.
 
