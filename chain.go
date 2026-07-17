@@ -3,9 +3,9 @@
 package pump
 
 // Chain2 composes 2 pipeline stages into one.
-func Chain2[A, B, C any](s1 Stage[A, B], s2 Stage[B, C]) Stage[A, C] {
-	return func(src Gen[A], yield func(C) error) error {
-		return s2(Bind(src, s1), yield)
+func Chain2[T, U, V any](prev Stage[T, U], next Stage[U, V]) Stage[T, V] {
+	return func(g Gen[T], yield func(V) error) error {
+		return next(bind(g, prev), yield)
 	}
 }
 

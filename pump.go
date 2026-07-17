@@ -11,15 +11,12 @@ The package defines two generic types:
   - Pipeline stage Stage[T,U]: a function that invokes input generator Gen[T], does whatever processing
     it is programmed to do, and feeds the supplied callback with data items of type U.
 
-The package also provides a basic set of functions for composing pipeline stages and binding stages
-to generators, as well as support for pipelining and parallel execution.
+The package also provides a basic set of functions for composing pipeline stages, as well as support
+for pipelining and parallel execution.
 */
 package pump
 
-import (
-	"errors"
-	"iter"
-)
+import "iter"
 
 // generate chain functions
 //go:generate ./gen-chains chain.go
@@ -32,44 +29,74 @@ up to the user to develop their own generators, because it's not possible to pro
 code for all possible data sources. Also, some generators can be invoked only once (for example,
 those sourcing data from a socket), so please structure your code accordingly.
 */
-type Gen[T any] func(func(T) error) error
+type Gen[T any] = func(func(T) error) error
 
-// All creates a for-range iterator from the given generator. Any error encountered during
-// the iteration will be stored at the given error object.
-func (src Gen[T]) All(pe *error) iter.Seq[T] {
-	return func(yield func(T) bool) {
-		err := src(func(x T) (e error) {
-			if !yield(x) { // panics if the generator fails to stop on the first error
-				e = ErrStop
+// FromSeq creates a generator from the given iterator.
+func FromSeq[T any](seq iter.Seq[T]) Gen[T] {
+	return func(yield func(T) error) (e error) {
+		for x := range seq {
+			if e = yield(x); e != nil {
+				break
 			}
-
-			return
-		})
-
-		if !errors.Is(err, ErrStop) {
-			*pe = err
 		}
+
+		return
 	}
 }
 
-// ErrStop signals early exit from range over function loop. It is not returned from
-// for-range iterator, but within a stage function it may in some (probably, rare)
-// situations be treated as a special case.
-var ErrStop = errors.New("pipeline cancelled")
+// FromSlice creates a generator that reads data from the given slice, in order.
+// Typically it saves a few nanoseconds per iteration when compared to
+// FromSeq(slices.Values(src)).
+func FromSlice[S ~[]T, T any](src S) Gen[T] {
+	return func(yield func(T) error) (e error) {
+		for _, x := range src {
+			if e = yield(x); e != nil {
+				break
+			}
+		}
 
-// Bind takes an existing generator of some type T and returns a new generator of some type U
-// that does T -> U conversion via the given stage function.
-func Bind[T, U any](src Gen[T], stage Stage[T, U]) Gen[U] {
-	return func(yield func(U) error) error {
-		return stage(src, yield)
+		return
 	}
+}
+
+// FromSlicePtr is the same as [FromSlice] except that it yields pointers to the
+// items of type T.
+func FromSlicePtr[S ~[]T, T any](src S) Gen[*T] {
+	return func(yield func(*T) error) (e error) {
+		for i := range src {
+			if e = yield(&src[i]); e != nil {
+				break
+			}
+		}
+
+		return
+	}
+}
+
+// FromMap creates a generator of key/value pairs from the given map.
+func FromMap[K comparable, V any](src map[K]V) Gen[Pair[K, V]] {
+	return func(yield func(Pair[K, V]) error) (e error) {
+		for k, v := range src {
+			if e = yield(Pair[K, V]{k, v}); e != nil {
+				break
+			}
+		}
+
+		return
+	}
+}
+
+// Pair is the type produced by [FromMap] generator.
+type Pair[K, V any] struct {
+	Key   K
+	Value V
 }
 
 /*
 Stage is a generic type (a function) representing a pipeline stage. For any given types T and U,
 the function takes a generator of type Gen[T] and a callback of type func(U) error. When invoked,
 it is expected to run the generator, do whatever processing it is programmed to do, also calling
-the callback function once per each data element produced. Stage function is expected to stop at
+the callback function once per each data item produced. Stage function is expected to stop at
 and return the first error (if any) from either the callback, or from the iteration itself. The
 signature of the function is designed to allow for full control over when and how the source
 generator is invoked. For example, suppose we want to have a pipeline stage where processing of
@@ -99,14 +126,14 @@ function (for some already defined types T and U):
 		})
 	}
 */
-type Stage[T, U any] func(Gen[T], func(U) error) error
+type Stage[T, U any] = func(Gen[T], func(U) error) error
 
 // Filter creates a stage function that filters input items according to the given predicate.
 func Filter[T any](pred func(T) bool) Stage[T, T] {
-	return func(src Gen[T], yield func(T) error) error {
-		return src(func(item T) (err error) {
-			if pred(item) {
-				err = yield(item)
+	return func(g Gen[T], yield func(T) error) error {
+		return g(func(x T) (e error) {
+			if pred(x) {
+				e = yield(x)
 			}
 
 			return
@@ -114,69 +141,94 @@ func Filter[T any](pred func(T) bool) Stage[T, T] {
 	}
 }
 
-// Map creates a stage function that converts each data element via the given function.
-func Map[T, U any](fn func(T) U) Stage[T, U] {
-	return func(src Gen[T], yield func(U) error) error {
-		return src(func(item T) error {
-			return yield(fn(item))
+// Map creates a stage function that converts each data item via the given function.
+func Map[T, U any](m func(T) U) Stage[T, U] {
+	return func(g Gen[T], yield func(U) error) error {
+		return g(func(x T) error {
+			return yield(m(x))
 		})
 	}
 }
 
-// MapE creates a stage function that converts each data element via the given function,
+// MapE creates a stage function that converts each data item via the given function,
 // stopping on the first error encountered, if any.
-func MapE[T, U any](fn func(T) (U, error)) Stage[T, U] {
-	return func(src Gen[T], yield func(U) error) error {
-		return src(func(item T) error {
-			tmp, err := fn(item)
+func MapE[T, U any](m func(T) (U, error)) Stage[T, U] {
+	return func(g Gen[T], yield func(U) error) error {
+		return g(func(x T) (e error) {
+			var y U
 
-			if err != nil {
-				return err
+			if y, e = m(x); e == nil {
+				e = yield(y)
 			}
 
-			return yield(tmp)
+			return
 		})
 	}
 }
 
-// FromSeq constructs a generator from the given iterator.
-func FromSeq[T any](src iter.Seq[T]) Gen[T] {
-	return func(yield func(T) error) (err error) {
-		for item := range src {
-			if err = yield(item); err != nil {
-				break
+// Unique creates a stage that yields only the items with unique keys, skipping all duplicates.
+// The key for each item is defined by the given function. The returned stage is stateful, and
+// it does not work correctly within [Parallel] or [ParallelCtx].
+func Unique[K comparable, V any](key func(V) K) Stage[V, V] {
+	return func(g Gen[V], yield func(V) error) error {
+		seen := make(map[K]struct{})
+
+		return g(func(x V) (e error) {
+			k := key(x)
+
+			if _, ok := seen[k]; !ok {
+				seen[k] = struct{}{}
+				e = yield(x)
 			}
+
+			return
+		})
+	}
+}
+
+// Batch creates a stage that yields batches of the given size.
+func Batch[T any](size int) Stage[T, []T] {
+	if size < 1 {
+		panic("invalid size in pump.Batch")
+	}
+
+	return func(g Gen[T], yield func([]T) error) (err error) {
+		b := make([]T, 0, size)
+		f := func(x T) (e error) {
+			if b = append(b, x); len(b) == size {
+				if e = yield(b); e == nil {
+					b = make([]T, 0, size)
+				}
+			}
+
+			return
+		}
+
+		if err = g(f); err == nil && len(b) > 0 {
+			err = yield(b)
 		}
 
 		return
 	}
 }
 
-// FromSlice constructs a generator that reads data from the given slice, in order.
-// In Go v1.23 it saves a few nanoseconds per iteration when compared to
-// FromSeq(slices.Values(src)).
-func FromSlice[S ~[]T, T any](src S) Gen[T] {
-	return func(yield func(T) error) (err error) {
-		for _, item := range src {
-			if err = yield(item); err != nil {
+// Flatten is a stage function that does the inverse of [Batch]: it yields
+// individual items from each input batch.
+func Flatten[T any](g Gen[[]T], yield func(T) error) error {
+	return g(func(b []T) (e error) {
+		for _, x := range b {
+			if e = yield(x); e != nil {
 				break
 			}
 		}
 
 		return
-	}
+	})
 }
 
-// FromAll constructs a generator that invokes all the given generators one after another,
-// in order.
-func FromAll[T any](srcs ...Gen[T]) Gen[T] {
-	return func(yield func(T) error) (err error) {
-		for _, src := range srcs {
-			if err = src(yield); err != nil {
-				break
-			}
-		}
-
-		return
+// bind a stage to a generator, returning a new generator
+func bind[T, U any](g Gen[T], s Stage[T, U]) Gen[U] {
+	return func(yield func(U) error) error {
+		return s(g, yield)
 	}
 }

@@ -2,6 +2,7 @@ package pump
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -48,13 +49,126 @@ func TestChain(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	if i != len(data)-1 {
-		t.Errorf("unexpected number of iterations: %d instead of %d", i, len(data)-1)
-		return
+		t.Fatalf("unexpected number of iterations: %d instead of %d", i, len(data)-1)
+	}
+}
+
+func TestFromSlicePtr(t *testing.T) {
+	sum := 0
+
+	sumfn := func(p *int) error {
+		sum += *p
+		return nil
+	}
+
+	if err := FromSlicePtr([]int{1, 2, 3, 4, 5})(sumfn); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	if sum != 15 {
+		t.Fatalf("invalid sum: %d instead of 15", sum)
+	}
+}
+
+func TestFromMap(t *testing.T) {
+	data := map[int]int{
+		0:  1,
+		10: 2,
+		20: 3,
+		30: 4,
+		40: 5,
+	}
+
+	sumK, sumV := 0, 0
+
+	sumfn := func(p Pair[int, int]) error {
+		sumK += p.Key
+		sumV += p.Value
+		return nil
+	}
+
+	if err := FromMap(data)(sumfn); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	if sumK != 100 {
+		t.Fatalf("invalid sum of keys: %d instead of 100", sumK)
+	}
+
+	if sumV != 15 {
+		t.Fatalf("invalid sum of values: %d instead of 15", sumV)
+	}
+}
+
+func TestUnique(t *testing.T) {
+	data := []int{1, 2, 3, 4, 5, 1, 2, 3, 4, 5}
+	pipe := Unique(func(x int) int { return x })
+	sum := 0
+
+	sumfn := func(x int) error {
+		sum += x
+		return nil
+	}
+
+	if err := pipe(FromSlice(data), sumfn); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	if sum != 15 {
+		t.Fatalf("invalid sum: %d instead of 15", sum)
+	}
+}
+
+func TestBatch(t *testing.T) {
+	src := []int{0, 1, 2, 3, 4, 5, 6}
+	res := make([]int, 0, len(src))
+	g := bind(FromSlice(src), Batch[int](2))
+
+	err := g(func(s []int) error {
+		if len(res) >= len(src) {
+			return errors.New("unexpected iteration")
+		}
+
+		switch len(s) {
+		case 0:
+			return errors.New("empty chunk")
+		case 1, 2:
+			break
+		default:
+			return fmt.Errorf("invalid chunk size: %d", len(s))
+		}
+
+		res = append(res, s...)
+		return nil
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Equal(src, res) {
+		t.Fatalf("unexpected result: %v", res)
+	}
+}
+
+func TestFlatten(t *testing.T) {
+	sum := 0
+	pipe := Chain2(Batch[int](3), Flatten)
+	err := pipe(intRange(7), func(x int) error {
+		sum += x
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error %s", err)
+	}
+
+	if sum != 21 {
+		t.Fatalf("unexpected sum: %d instead of 21", sum)
 	}
 }
 
@@ -90,39 +204,29 @@ func TestPipe(t *testing.T) {
 		failed := false
 		n := 0
 
-		var err error
-
-		for x := range Bind(intRange(N), stage).All(&err) {
+		err := stage(intRange(N), func(x int) error {
 			if failed {
 				panic(fmt.Sprintf("[%d] double fault", i))
 			}
 
 			if failed = n > N; failed {
-				t.Errorf("[%d] unexpected iteration", i)
-				return
+				t.Fatalf("[%d] unexpected iteration", i)
 			}
 
 			if failed = x != n; failed {
-				t.Errorf("[%d] unexpected value: %d instead of %d", i, x, n)
-				return
-			}
-
-			if failed = err != nil; failed {
-				t.Errorf("[%d] unexpected error (1): %s", i, err)
-				return
+				t.Fatalf("[%d] unexpected value: %d instead of %d", i, x, n)
 			}
 
 			n++
-		}
+			return nil
+		})
 
 		if err != nil {
-			t.Errorf("[%d] unexpected error (2): %s", i, err)
-			return
+			t.Fatalf("[%d] unexpected error: %s", i, err)
 		}
 
 		if n != N {
-			t.Errorf("[%d] unexpected number of iterations: %d instead of %d", i, n, N)
-			return
+			t.Fatalf("[%d] unexpected number of iterations: %d instead of %d", i, n, N)
 		}
 	}
 }
@@ -194,30 +298,26 @@ func TestParallel(t *testing.T) {
 	res := make([]int, 0, N/2)
 
 	for no, stage := range stages {
-		var err error
-
 		res = res[:0]
 
-		for x := range Bind(intRange(N), stage).All(&err) {
+		err := stage(intRange(N), func(x int) error {
 			res = append(res, x)
-		}
+			return nil
+		})
 
 		if err != nil {
-			t.Errorf("[%d] %s", no, err)
-			return
+			t.Fatalf("[%d] %s", no, err)
 		}
 
 		if len(res) != N/2 {
-			t.Errorf("[%d] unexpected result length: %d instead of %d", no, len(res), N/2)
-			return
+			t.Fatalf("[%d] unexpected result length: %d instead of %d", no, len(res), N/2)
 		}
 
 		sort.Ints(res)
 
 		for i := range len(res) {
 			if res[i] != 2*i {
-				t.Errorf("[%d] unexpected value at %d: %d instead of %d", no, i, res[i], 2*i)
-				return
+				t.Fatalf("[%d] unexpected value at %d: %d instead of %d", no, i, res[i], 2*i)
 			}
 		}
 	}
@@ -225,70 +325,6 @@ func TestParallel(t *testing.T) {
 
 func TestParallelErr(t *testing.T) {
 	testStageErr(t, Parallel(0, MapE(strconv.Atoi)))
-}
-
-func TestEarlyExit(t *testing.T) {
-	const (
-		N = 50
-		M = 20
-	)
-
-	sources := [...]Gen[int]{
-		genOnes(N),
-		Bind(genOnes(N), Pipe),
-		Bind(genOnes(N), Chain2(Pipe, delay[int])),
-		Bind(genOnes(N), Parallel(0, pass)),
-		Bind(genOnes(N), Parallel(0, delay[int])),
-	}
-
-	for i, gen := range sources {
-		var err error
-
-		count := 0
-
-		for x := range gen.All(&err) {
-			if count += x; count == M {
-				break
-			}
-		}
-
-		if err != nil {
-			t.Errorf("[%d] unexpected error: %s", i, err)
-			return
-		}
-
-		if count != M {
-			t.Errorf("[%d] unexpected value: %d instead of %d", i, count, M)
-			return
-		}
-	}
-}
-
-func TestFromAll(t *testing.T) {
-	s1, s2 := [...]int{0, 1, 2}, [...]int{3, 4, 5}
-	count, n := 0, len(s1)+len(s2)
-
-	err := FromAll(FromSlice(s1[:]), FromSlice(s2[:]))(func(x int) error {
-		if x != count {
-			return fmt.Errorf("unexpected value: %d instead of %d", x, count)
-		}
-
-		if count++; count > n {
-			return fmt.Errorf("unexpected call with value %d", x)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	if count != n {
-		t.Errorf("unexpected number of calls: %d instead of %d", count, n)
-		return
-	}
 }
 
 func intRange(n int) Gen[int] {
@@ -334,24 +370,21 @@ func testStageErr(t *testing.T, stage Stage[string, int]) {
 	}
 
 	for i := range M {
-		var err error
-
 		errInd := rand.Int() % N
 
 		data[errInd] = "?"
 
-		for range Bind(FromSlice(data), stage).All(&err) {
+		err := stage(FromSlice(data), func(_ int) error {
 			// do nothing
-		}
+			return nil
+		})
 
 		if err == nil {
-			t.Errorf("[%d @ %d] missing error", i, errInd)
-			return
+			t.Fatalf("[%d @ %d] missing error", i, errInd)
 		}
 
 		if err.Error() != `strconv.Atoi: parsing "?": invalid syntax` {
-			t.Errorf("[%d @ %d] unexpected error: %s", i, errInd, err)
-			return
+			t.Fatalf("[%d @ %d] unexpected error: %s", i, errInd, err)
 		}
 
 		data[errInd] = strconv.Itoa(errInd)
@@ -362,46 +395,12 @@ func BenchmarkSimple(b *testing.B) {
 	bench(b, pass)
 }
 
-func BenchmarkRangeFunc(b *testing.B) {
-	gen := func(yield func(int) error) (err error) {
-		for i := range b.N {
-			if err = yield(i & 1); err != nil {
-				break
-			}
-		}
-
-		return
-	}
-
-	sum := 0
-
-	var err error
-
-	b.ResetTimer()
-
-	for x := range Bind(gen, pass).All(&err) {
-		sum += x
-	}
-
-	b.StopTimer()
-
-	if err != nil {
-		b.Error(err)
-		return
-	}
-
-	if sum != b.N/2 {
-		b.Errorf("unexpected sum: %d instead of %d", sum, b.N/2)
-		return
-	}
-}
-
 func BenchmarkPipe(b *testing.B) {
 	bench(b, Pipe)
 }
 
 func BenchmarkParallel(b *testing.B) {
-	bench(b, Parallel(0, pass))
+	bench(b, Parallel(0, pass[int]))
 }
 
 func bench(b *testing.B, stage Stage[int, int]) {
@@ -427,17 +426,15 @@ func bench(b *testing.B, stage Stage[int, int]) {
 	b.StopTimer()
 
 	if err != nil {
-		b.Error(err)
-		return
+		b.Fatal(err)
 	}
 
 	if sum != b.N/2 {
-		b.Errorf("unexpected sum: %d instead of %d", sum, b.N/2)
-		return
+		b.Fatalf("unexpected sum: %d instead of %d", sum, b.N/2)
 	}
 }
 
-func pass(src Gen[int], yield func(int) error) error {
+func pass[T any](src Gen[T], yield func(T) error) error {
 	return src(yield)
 }
 

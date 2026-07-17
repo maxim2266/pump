@@ -16,8 +16,8 @@ The package defines two generic types:
   - Pipeline stage `Stage[T,U]`: a function that invokes input generator `Gen[T]`, does whatever processing
     it is programmed to do, and feeds the supplied callback with data items of type `U`.
 
-The package also provides a basic set of functions for composing pipeline stages and binding stages
-to generators, as well as support for pipelining and parallel execution.
+The package also provides a basic set of functions for composing pipeline stages, as well as
+support for pipelining and parallel execution.
 
 For API details see [documentation](https://godoc.org/github.com/maxim2266/pump).
 
@@ -26,7 +26,7 @@ The library is built around two data types: generator `Gen[T any]` and stage `St
 Generator is a function that passes data items to its argument - a callback function `func(T) error`.
 It is defined as
 ```Go
-type Gen[T any] func(func(T) error) error
+type Gen[T any] = func(func(T) error) error
 ```
 This is very similar to `iter.Seq` type from Go v1.23, except that the callback function
 returns `error` instead of a boolean. Any implementation of the generator function should stop
@@ -50,10 +50,10 @@ generators are more likely to read data from more complex sources, such as files
 database queries, etc.
 
 The second type, `Stage`, is a function that is expected to invoke the given generator,
-process each data item of type `T` and possibly forward each result (of type `U`) to the given
+process each data item of type `T`, and then forward each result (of type `U`) to the given
 callback. The `Stage` type is defined as
 ```Go
-type Stage[T, U any] func(Gen[T], func(U) error) error
+type Stage[T, U any] = func(Gen[T], func(U) error) error
 ```
 Just to give a simple example, this is a stage that increments every integer from its generator:
 ```Go
@@ -96,29 +96,17 @@ func process(src pump.Gen[T], yield func(U) error) error {
 The rest of the library is essentially about constructing and composing stages. Multiple stages
 can be composed into one using `Chain*` family of functions, for example:
 ```Go
-pipe := Chain3(increment, times2, modulo5)
+pipe := Chain3(firstStage, seconfStage, thirdStage)
 ```
-Given a suitable generator, a pipe can be invoked directly:
+Given a suitable generator and a callback function, running a pipe is just an invocation of
+the above stage function:
 ```Go
 gen := FromSlice([]int{ 1, 2, 3 }) // input data generator
+
 err := pipe(gen, func(x int) error {
     _, e := fmt.Println(x)
     return e
 })
-
-if err != nil { ... }
-```
-Or it can be used in a for-range loop:
-```Go
-it := Bind(FromSlice([]int{ 1, 2, 3 }), pipe)
-
-var err error
-
-sum := 0
-
-for x := range it.All(&err) {
-    sum += x
-}
 
 if err != nil { ... }
 ```
@@ -202,26 +190,25 @@ _Note_: `Parallel` stage does not preserve the order of data items.
 In general, pipelines can be assembled either statically (i.e., when `pipe` is literally
 a static variable), or dynamically, for example, as a function of configuration. Also,
 separation between processing stages and their composition often reduces the number of
-code modifications required to implement new requirements.
+code modifications required to implement new features.
 
 #### Benchmarks
 All benchmarks below simply pump integers through stages with no processing at all, thus only
-measuring the overhead associated with running stages themselves. The first two benchmarks show
-that the iteration is generally quite efficient, especially using "for-range" loop. Results
-for `Pipe` and `Parallel` stages show higher overhead because of the Go channels used internally
-(one channel for `Pipe` stage, and two for `Parallel`).
+measuring the overhead associated with running stages themselves. The first benchmark shows
+that the iteration is generally quite efficient. Results for `Pipe` and `Parallel` stages show
+higher overhead because of the Go channels used internally (one channel for `Pipe` stage, and
+two for `Parallel`).
 ```
 ▶ go test -bench .
 goos: linux
 goarch: amd64
 pkg: github.com/maxim2266/pump
 cpu: Intel(R) Core(TM) i5-8500T CPU @ 2.10GHz
-BenchmarkSimple-6       575758419         1.754 ns/op
-BenchmarkRangeFunc-6    1000000000        0.4368 ns/op
-BenchmarkPipe-6          7921405        157.2 ns/op
-BenchmarkParallel-6      2367049        522.8 ns/op
+BenchmarkSimple-6       621940492                1.764 ns/op
+BenchmarkPipe-6          8738133               135.5 ns/op
+BenchmarkParallel-6      2225258               500.3 ns/op
 ```
-The numbers are obtained with Go compiler version 1.26.0 on Linux Mint 22.3.
+The numbers are obtained with Go compiler version 1.26.4 on Linux Mint 22.3.
 
 #### License
 BSD-3-Clause
