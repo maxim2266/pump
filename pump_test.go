@@ -295,15 +295,8 @@ func TestParallel(t *testing.T) {
 		),
 	}
 
-	res := make([]int, 0, N/2)
-
 	for no, stage := range stages {
-		res = res[:0]
-
-		err := stage(intRange(N), func(x int) error {
-			res = append(res, x)
-			return nil
-		})
+		res, err := Collect(intRange(N), stage)
 
 		if err != nil {
 			t.Fatalf("[%d] %s", no, err)
@@ -331,18 +324,6 @@ func intRange(n int) Gen[int] {
 	return func(yield func(int) error) (err error) {
 		for i := range n {
 			if err = yield(i); err != nil {
-				break
-			}
-		}
-
-		return
-	}
-}
-
-func genOnes(n int) Gen[int] {
-	return func(yield func(int) error) (err error) {
-		for range n {
-			if err = yield(1); err != nil {
 				break
 			}
 		}

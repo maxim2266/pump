@@ -232,3 +232,14 @@ func bind[T, U any](g Gen[T], s Stage[T, U]) Gen[U] {
 		return s(g, yield)
 	}
 }
+
+// Collect runs the given stage with the given generator, and returns a slice of
+// results, or an error.
+func Collect[T, U any](g Gen[T], s Stage[T, U]) (r []U, e error) {
+	e = s(g, func(x U) error {
+		r = append(r, x)
+		return nil
+	})
+
+	return
+}
